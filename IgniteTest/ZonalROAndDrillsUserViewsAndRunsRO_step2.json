@@ -5,7 +5,7 @@
     "serviceGroupName": {
       "type": "string",
       "minLength": 1,
-      "defaultValue": "[format('{0}-SG-manual02', resourceGroup().name)]",
+      "defaultValue": "[format('{0}-SG-manual03', resourceGroup().name)]",
       "metadata": {
         "description": "Name of the already-existing Service Group (created by step1) to assign a resilience goal to. Default is a static (non-random) name scoped to the resource group, shared with step1's default so both templates chain together in the same resource group with no parameters."
       }

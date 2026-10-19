@@ -18,7 +18,7 @@
     },
     "serviceGroupName": {
       "type": "string",
-      "defaultValue": "[format('{0}-SG-manual02', resourceGroup().name)]"
+      "defaultValue": "[format('{0}-SG-manual03', resourceGroup().name)]"
     },
     "serviceGroupDisplayName": {
       "type": "string",
