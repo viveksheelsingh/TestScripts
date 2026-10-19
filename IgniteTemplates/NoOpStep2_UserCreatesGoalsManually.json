@@ -1,0 +1,22 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Intentional no-op step2 for this scenario. Automation's job ends at step1 (deploy infra + create the Service Group); the zonal and regional resilience goals are created manually by the user afterwards (e.g. via the portal), so there is nothing for ARM to deploy here."
+  },
+  "parameters": {
+    "serviceGroupName": {
+      "type": "string",
+      "minLength": 1,
+      "defaultValue": "CaldovaPayApp_Ex3_Task3_SG",
+      "metadata": {
+        "description": "Name of the already-existing Service Group (created by step1). Default matches step1's default naming formula so both templates chain together in the same resource group with no parameters. Not referenced by any resource below - kept only so this template's parameter contract stays symmetric with the other step2 templates."
+      }
+    }
+  },
+  "variables": {
+    "serviceGroupId": "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]"
+  },
+  "resources": [],
+  "outputs": {}
+}
