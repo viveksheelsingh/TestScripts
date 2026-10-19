@@ -1,0 +1,241 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.44.1.10279",
+      "templateHash": "6129470639813037323"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "centralus"
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {
+        "DeleteBy": "12-2026",
+        "ManagerAlias": "vikasn",
+        "Owner": "viveksi",
+        "TestType": "LongHaul",
+        "Workload": "sql"
+      },
+      "metadata": {
+        "description": "Default matches the tags already set on the Ignite26Test resource group, so resources created here (public IP, AMW account) satisfy the tenant's '[BCDR]: Enforce Resource Group Tags' policy instead of relying on an empty {} default."
+      }
+    },
+    "serviceGroupName": {
+      "type": "string",
+      "defaultValue": "[format('{0}-SG-manual02', resourceGroup().name)]"
+    },
+    "serviceGroupDisplayName": {
+      "type": "string",
+      "defaultValue": "[parameters('serviceGroupName')]"
+    },
+    "serviceGroupParentId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional parent Service Group resource ID. Leave empty for a root-level Service Group (defaults to the tenant-root Service Group)."
+      }
+    },
+    "amwAccountName": {
+      "type": "string",
+      "defaultValue": "[format('amw-{0}', uniqueString(resourceGroup().id))]",
+      "metadata": {
+        "description": "Azure Monitor Workspace that the SLI (created in step2) will publish/read metrics from."
+      }
+    },
+    "sliIdentityName": {
+      "type": "string",
+      "defaultValue": "[format('sli-id-{0}', uniqueString(resourceGroup().id))]",
+      "metadata": {
+        "description": "User-assigned managed identity granted Monitoring Metrics Publisher + Monitoring Reader on the AMW account, used by step2's SLI resource."
+      }
+    }
+  },
+  "variables": {
+    "serviceGroupResourceId": "[format('/providers/Microsoft.Management/serviceGroups/{0}', parameters('serviceGroupName'))]",
+    "serviceGroupRelationshipId": "[format('default{0}', parameters('serviceGroupName'))]",
+    "vnetNameValue": "[format('vnet-{0}', uniqueString(resourceGroup().id))]",
+    "publicIpNameValue": "[format('pubip-{0}', uniqueString(resourceGroup().id))]",
+    "lbNameValue": "[format('web-lb-{0}', uniqueString(resourceGroup().id))]",
+    "webVm1NameValue": "[format('web-vm-1-{0}', uniqueString(resourceGroup().id))]",
+    "webVm2NameValue": "[format('web-vm-2-{0}', uniqueString(resourceGroup().id))]",
+    "appVm1NameValue": "[format('app-vm-1-{0}', uniqueString(resourceGroup().id))]",
+    "appVm2NameValue": "[format('app-vm-2-{0}', uniqueString(resourceGroup().id))]",
+    "pgServerNameValue": "[format('pg-flex-{0}', uniqueString(resourceGroup().id))]",
+    "storageNameValue": "[format('st{0}', uniqueString(resourceGroup().id))]",
+    "amwAccountNameValue": "[parameters('amwAccountName')]",
+    "sliIdentityNameValue": "[parameters('sliIdentityName')]",
+    "metricsPublisherRoleAssignmentName": "[guid(resourceGroup().id, parameters('sliIdentityName'), 'MonitoringMetricsPublisher')]",
+    "monitoringReaderRoleAssignmentName": "[guid(resourceGroup().id, parameters('sliIdentityName'), 'MonitoringReader')]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Management/serviceGroups",
+      "apiVersion": "2024-02-01-preview",
+      "scope": "/",
+      "name": "[parameters('serviceGroupName')]",
+      "properties": "[createObject('displayName', parameters('serviceGroupDisplayName'), 'parent', createObject('resourceId', if(empty(parameters('serviceGroupParentId')), format('/providers/Microsoft.Management/serviceGroups/{0}', tenant().tenantId), parameters('serviceGroupParentId'))))]"
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "publicIpModule",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "publicIpName": {
+            "value": "[format('pubip-{0}', uniqueString(resourceGroup().id))]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.44.1.10279",
+              "templateHash": "12092583947442570710"
+            }
+          },
+          "parameters": {
+            "publicIpName": {
+              "type": "string",
+              "defaultValue": "[format('lb-pip-{0}', uniqueString(resourceGroup().id))]"
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]"
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {}
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/publicIPAddresses",
+              "apiVersion": "2025-05-01",
+              "name": "[parameters('publicIpName')]",
+              "location": "[parameters('location')]",
+              "sku": {
+                "name": "Standard",
+                "tier": "Regional"
+              },
+              "properties": {
+                "publicIPAllocationMethod": "Static"
+              },
+              "tags": "[parameters('tags')]"
+            }
+          ],
+          "outputs": {
+            "publicIpId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/publicIPAddresses', parameters('publicIpName'))]"
+            },
+            "publicIpName": {
+              "type": "string",
+              "value": "[parameters('publicIpName')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpNameValue'))]",
+      "properties": {
+        "targetId": "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]"
+      },
+      "dependsOn": [
+        "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]",
+        "[resourceId('Microsoft.Resources/deployments', 'publicIpModule')]"
+      ]
+    },
+    {
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "apiVersion": "2023-01-31",
+      "name": "[variables('sliIdentityNameValue')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]"
+    },
+    {
+      "type": "Microsoft.Monitor/accounts",
+      "apiVersion": "2023-04-03",
+      "name": "[variables('amwAccountNameValue')]",
+      "location": "[parameters('location')]",
+      "tags": "[parameters('tags')]",
+      "properties": {}
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Monitor/accounts', variables('amwAccountNameValue'))]",
+      "name": "[variables('metricsPublisherRoleAssignmentName')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '3913510d-42f4-4e42-8a64-420c390055eb')]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('sliIdentityNameValue')), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Monitor/accounts', variables('amwAccountNameValue'))]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('sliIdentityNameValue'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.Monitor/accounts', variables('amwAccountNameValue'))]",
+      "name": "[variables('monitoringReaderRoleAssignmentName')]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '43d0d8ad-25c7-4714-9337-8ba259a9fe05')]",
+        "principalId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('sliIdentityNameValue')), '2023-01-31').principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Monitor/accounts', variables('amwAccountNameValue'))]",
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('sliIdentityNameValue'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "serviceGroupName": {
+      "type": "string",
+      "value": "[parameters('serviceGroupName')]"
+    },
+    "serviceGroupId": {
+      "type": "string",
+      "value": "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]"
+    },
+    "publicIpId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'publicIpModule'), '2025-04-01').outputs.publicIpId.value]"
+    },
+    "amwAccountId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Monitor/accounts', variables('amwAccountNameValue'))]"
+    },
+    "sliIdentityId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('sliIdentityNameValue'))]"
+    }
+  }
+}

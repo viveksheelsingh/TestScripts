@@ -1,0 +1,359 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "manual-combine",
+      "note": "Combined from CommonSGSetup.json (step1) + ZonalROAndDrillsUserViewsAndRunsRO_step2.json (step2) to reverify the RBAC-propagation race documented in ../KnownErrors.txt. Not hand-authored bicep; the two source files are concatenated with minimal dependsOn wiring added so step2's SG-scoped resources (goalAssignment, recoveryPlan, drill) explicitly wait on the serviceGroups resource created earlier in the SAME deployment, instead of in a separate, later deployment as the split design does."
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "centralus"
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {}
+    },
+    "serviceGroupName": {
+      "type": "string",
+      "defaultValue": "[format('{0}-SG-manual02', resourceGroup().name)]"
+    },
+    "serviceGroupDisplayName": {
+      "type": "string",
+      "defaultValue": "[parameters('serviceGroupName')]"
+    },
+    "serviceGroupParentId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional parent Service Group resource ID. Leave empty for a root-level Service Group (defaults to the tenant-root Service Group)."
+      }
+    },
+    "zonalGoalAssignmentName": {
+      "type": "string",
+      "defaultValue": "zonal-ha-assign",
+      "metadata": {
+        "description": "Name of the goal assignment. Only one goalAssignment is allowed per Service Group."
+      }
+    },
+    "goalAssignmentType": {
+      "type": "string",
+      "defaultValue": "Resiliency",
+      "metadata": {
+        "description": "Only 'Resiliency' is accepted."
+      }
+    },
+    "goalApiVersion": {
+      "type": "string",
+      "defaultValue": "2026-08-31-preview",
+      "metadata": {
+        "description": "No separate goalTemplates resource is needed on this apiVersion or later. A standalone goalTemplates resource's write is hard-blocked (DisallowedResourceOperation) on every apiVersion - do not add one. goalTemplateId instead points at the Service Group's own resource ID. Do not set requireZonalResiliency explicitly - both true and false are currently rejected (RHUBUserErrorInvalidRequestParameter); omitting it yields the only supported default (true)."
+      }
+    },
+    "usagePlanName": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 24,
+      "defaultValue": "rhqtUsagePlan01",
+      "metadata": {
+        "description": "Name of the Standard Usage Plan (RG + subscription scoped)."
+      }
+    },
+    "enrollmentName": {
+      "type": "string",
+      "defaultValue": "rhqtEnrollment01",
+      "metadata": {
+        "description": "Name of the enrollment child resource binding the Service Group to the Usage Plan."
+      }
+    },
+    "zonalRecoveryPlanName": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 24,
+      "defaultValue": "zonal-recovery-plan"
+    },
+    "zonalRecoveryPlanDescription": {
+      "type": "string",
+      "defaultValue": "Zonal recovery plan for Service Group",
+      "minLength": 5,
+      "maxLength": 50
+    },
+    "zonalRecoveryPlanGroupDescription": {
+      "type": "string",
+      "defaultValue": "Default recovery group",
+      "minLength": 5,
+      "maxLength": 50
+    },
+    "roApiVersion": {
+      "type": "string",
+      "defaultValue": "2026-06-01-preview",
+      "metadata": {
+        "description": "apiVersion for usagePlans/enrollments/recoveryPlans. A Usage Plan + Enrollment must exist before a recoveryPlans resource can be created against the Service Group (RHBLUserErrorNotEnrolled otherwise)."
+      }
+    },
+    "zonalDrillName": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 24,
+      "defaultValue": "zonal-drill-01",
+      "metadata": {
+        "description": "Name of the Drill. Pattern: letters, numbers, hyphens only, 3-24 chars."
+      }
+    },
+    "drillRegion": {
+      "type": "string",
+      "defaultValue": "westcentralus",
+      "metadata": {
+        "description": "Region where the Drill's internal (Chaos/monitoring) resources are created. Must match an allowed region; hardcoded here like the IRM resource group."
+      }
+    },
+    "drillApiVersion": {
+      "type": "string",
+      "defaultValue": "2026-06-01-preview",
+      "metadata": {
+        "description": "Latest apiVersion for drills as of this session. A Recovery Plan must already exist on the Service Group before the Drill can succeed (confirmed via live test - drill goes to provisioningState Failed otherwise). drillAssetProperties.resourceGroup MUST be set to an existing, tag-policy-compliant resource group (e.g. 'IRM') - if omitted, the RP tries to auto-create its own default RG 'AzureResilienceManagementDrills' which this tenant's '[BCDR]: Enforce Resource Group Tags' policy blocks (RHDSUserErrorInsufficientPermission/RequestDisallowedByPolicy)."
+      }
+    }
+  },
+  "variables": {
+    "serviceGroupResourceId": "[format('/providers/Microsoft.Management/serviceGroups/{0}', parameters('serviceGroupName'))]",
+    "serviceGroupRelationshipId": "[format('default{0}', parameters('serviceGroupName'))]",
+    "vnetNameValue": "[format('vnet-{0}', uniqueString(resourceGroup().id))]",
+    "publicIpNameValue": "[format('pubip-{0}', uniqueString(resourceGroup().id))]",
+    "lbNameValue": "[format('web-lb-{0}', uniqueString(resourceGroup().id))]",
+    "webVm1NameValue": "[format('web-vm-1-{0}', uniqueString(resourceGroup().id))]",
+    "webVm2NameValue": "[format('web-vm-2-{0}', uniqueString(resourceGroup().id))]",
+    "appVm1NameValue": "[format('app-vm-1-{0}', uniqueString(resourceGroup().id))]",
+    "appVm2NameValue": "[format('app-vm-2-{0}', uniqueString(resourceGroup().id))]",
+    "pgServerNameValue": "[format('pg-flex-{0}', uniqueString(resourceGroup().id))]",
+    "storageNameValue": "[format('st{0}', uniqueString(resourceGroup().id))]",
+    "serviceGroupId": "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Management/serviceGroups",
+      "apiVersion": "2024-02-01-preview",
+      "scope": "/",
+      "name": "[parameters('serviceGroupName')]",
+      "properties": "[createObject('displayName', parameters('serviceGroupDisplayName'), 'parent', createObject('resourceId', if(empty(parameters('serviceGroupParentId')), format('/providers/Microsoft.Management/serviceGroups/{0}', tenant().tenantId), parameters('serviceGroupParentId'))))]"
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "publicIpModule",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "publicIpName": {
+            "value": "[format('pubip-{0}', uniqueString(resourceGroup().id))]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.44.1.10279",
+              "templateHash": "12092583947442570710"
+            }
+          },
+          "parameters": {
+            "publicIpName": {
+              "type": "string",
+              "defaultValue": "[format('lb-pip-{0}', uniqueString(resourceGroup().id))]"
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]"
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {}
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/publicIPAddresses",
+              "apiVersion": "2025-05-01",
+              "name": "[parameters('publicIpName')]",
+              "location": "[parameters('location')]",
+              "sku": {
+                "name": "Standard",
+                "tier": "Regional"
+              },
+              "properties": {
+                "publicIPAllocationMethod": "Static"
+              },
+              "tags": "[parameters('tags')]"
+            }
+          ],
+          "outputs": {
+            "publicIpId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/publicIPAddresses', parameters('publicIpName'))]"
+            },
+            "publicIpName": {
+              "type": "string",
+              "value": "[parameters('publicIpName')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpNameValue'))]",
+      "properties": {
+        "targetId": "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]"
+      },
+      "dependsOn": [
+        "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]",
+        "[resourceId('Microsoft.Resources/deployments', 'publicIpModule')]"
+      ]
+    },
+    {
+      "type": "Microsoft.AzureResilienceManagement/goalAssignments",
+      "apiVersion": "[parameters('goalApiVersion')]",
+      "name": "[parameters('zonalGoalAssignmentName')]",
+      "scope": "[variables('serviceGroupId')]",
+      "properties": {
+        "goalAssignmentType": "[parameters('goalAssignmentType')]",
+        "goalTemplateId": "[variables('serviceGroupId')]",
+        "serviceLevelResources": []
+      },
+      "dependsOn": [
+        "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.AzureResilienceManagement/usagePlans",
+      "apiVersion": "[parameters('roApiVersion')]",
+      "name": "[parameters('usagePlanName')]",
+      "location": "global",
+      "tags": {},
+      "properties": {
+        "planType": "Standard"
+      }
+    },
+    {
+      "type": "Microsoft.AzureResilienceManagement/usagePlans/enrollments",
+      "apiVersion": "[parameters('roApiVersion')]",
+      "name": "[format('{0}/{1}', parameters('usagePlanName'), parameters('enrollmentName'))]",
+      "properties": {
+        "serviceGroupId": "[variables('serviceGroupId')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.AzureResilienceManagement/usagePlans', parameters('usagePlanName'))]",
+        "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.AzureResilienceManagement/recoveryPlans",
+      "apiVersion": "[parameters('roApiVersion')]",
+      "name": "[parameters('zonalRecoveryPlanName')]",
+      "scope": "[variables('serviceGroupId')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "planType": "Zonal",
+        "planDescription": "[parameters('zonalRecoveryPlanDescription')]",
+        "recoveryGroupsSetting": {
+          "defaultGroup": {
+            "properties": {
+              "groupUniqueId": "[guid(parameters('serviceGroupName'), parameters('zonalRecoveryPlanName'), 'defaultGroup')]",
+              "description": "[parameters('zonalRecoveryPlanGroupDescription')]",
+              "orderId": 0
+            }
+          },
+          "additionalGroups": []
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.AzureResilienceManagement/usagePlans/enrollments', parameters('usagePlanName'), parameters('enrollmentName'))]",
+        "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.AzureResilienceManagement/drills",
+      "apiVersion": "[parameters('drillApiVersion')]",
+      "name": "[parameters('zonalDrillName')]",
+      "scope": "[variables('serviceGroupId')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "drillType": "Zonal",
+        "rbacSetupMode": "AutomatedBuiltinRoles",
+        "drillAssetProperties": {
+          "region": "[parameters('drillRegion')]",
+          "resourceGroup": "IRM",
+          "subscription": "[subscription().subscriptionId]"
+        },
+        "chaosResourceProperties": {
+          "chaosResourceIdentityForFaults": {
+            "type": "SystemAssigned"
+          },
+          "identity": {
+            "type": "SystemAssigned"
+          }
+        },
+        "recoveryPlanProperties": {
+          "identity": {
+            "type": "SystemAssigned"
+          }
+        }
+      },
+      "dependsOn": [
+        "[extensionResourceId(variables('serviceGroupId'), 'Microsoft.AzureResilienceManagement/recoveryPlans', parameters('zonalRecoveryPlanName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "serviceGroupId": {
+      "type": "string",
+      "value": "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]"
+    },
+    "publicIpId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'publicIpModule'), '2025-04-01').outputs.publicIpId.value]"
+    },
+    "goalAssignmentId": {
+      "type": "string",
+      "value": "[extensionResourceId(variables('serviceGroupId'), 'Microsoft.AzureResilienceManagement/goalAssignments', parameters('zonalGoalAssignmentName'))]"
+    },
+    "usagePlanId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.AzureResilienceManagement/usagePlans', parameters('usagePlanName'))]"
+    },
+    "enrollmentId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.AzureResilienceManagement/usagePlans/enrollments', parameters('usagePlanName'), parameters('enrollmentName'))]"
+    },
+    "recoveryPlanId": {
+      "type": "string",
+      "value": "[extensionResourceId(variables('serviceGroupId'), 'Microsoft.AzureResilienceManagement/recoveryPlans', parameters('zonalRecoveryPlanName'))]"
+    },
+    "drillId": {
+      "type": "string",
+      "value": "[extensionResourceId(variables('serviceGroupId'), 'Microsoft.AzureResilienceManagement/drills', parameters('zonalDrillName'))]"
+    }
+  }
+}
