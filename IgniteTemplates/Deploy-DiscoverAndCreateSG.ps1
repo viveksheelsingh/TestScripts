@@ -182,6 +182,12 @@ Set-AzContext -SubscriptionId $SubscriptionId | Out-Null
 $resolvedSubId = (Get-AzContext).Subscription.Id
 
 # ---------------------------------------------------------------------------
+# Wait 25 minutes before the pre-step1 access-token refresh.
+# ---------------------------------------------------------------------------
+Write-Host "`n=== Waiting 25 minutes before the pre-step1 token refresh ===" -ForegroundColor Cyan
+Start-Sleep -Seconds 1500
+
+# ---------------------------------------------------------------------------
 # Force an explicit access-token refresh before step1.
 # Re-acquires a fresh access token for ARM before the very first deployment,
 # so step1 does not run on a token that was issued/cached before
