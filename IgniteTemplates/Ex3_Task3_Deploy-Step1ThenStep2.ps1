@@ -26,6 +26,15 @@
     placeholder that gets substituted with the lab instance's assigned subscription GUID
     at runtime (same pattern as the "Infect" script in LAB 721).
 
+.PARAMETER LabInstanceId
+    Per-user lab instance identifier, appended as a suffix to the Service Group name below.
+    Defaults to '@lab.LabInstance.Id' - the Skillable lab placeholder that gets substituted
+    with a value unique to each learner's lab instance at runtime. Service Groups
+    (Microsoft.Management/serviceGroups) are a TENANT-scoped resource, not subscription-scoped,
+    so a fixed name would collide across concurrent learners sharing the same AAD tenant even
+    though each learner gets their own subscription. Suffixing with -LabInstanceId makes the
+    name unique per learner.
+
 .PARAMETER TemplateBaseUri
     Base raw-GitHub URI the two templates are fetched from. Defaults to the IgniteTemplates
     folder pushed to https://github.com/viveksheelsingh/TestScripts.
@@ -46,10 +55,18 @@ param(
     [string] $SubscriptionId = '@lab.CloudSubscription.Id',
 
     [ValidateNotNullOrEmpty()]
+    [string] $LabInstanceId = '@lab.LabInstance.Id',
+
+    [ValidateNotNullOrEmpty()]
     [string] $TemplateBaseUri = 'https://raw.githubusercontent.com/viveksheelsingh/TestScripts/main/IgniteTemplates',
 
     [switch] $UseLocalFiles
 )
+
+# Service Group name, unique per lab instance (see -LabInstanceId above). Passed explicitly
+# to BOTH step1 and step2 below so the two templates always agree on the name - they no
+# longer rely on their independent JSON defaults happening to match.
+$script:ServiceGroupName = "CaldovaPayApp_Ex3_Task3_SG_$LabInstanceId"
 
 $ErrorActionPreference = "Stop"
 $scriptFolder = $PSScriptRoot
@@ -58,7 +75,8 @@ function Invoke-Deployment {
     param(
         [string]$DeploymentName,
         [string]$TemplateUriOrPath,
-        [bool]$IsUri
+        [bool]$IsUri,
+        [hashtable]$TemplateParameterObject
     )
 
     $deployArgs = @{
@@ -71,6 +89,10 @@ function Invoke-Deployment {
         $deployArgs["TemplateUri"] = $TemplateUriOrPath
     } else {
         $deployArgs["TemplateFile"] = $TemplateUriOrPath
+    }
+
+    if ($TemplateParameterObject) {
+        $deployArgs["TemplateParameterObject"] = $TemplateParameterObject
     }
 
     Write-Host "`n=== Deploying '$DeploymentName' ===" -ForegroundColor Cyan
@@ -115,14 +137,27 @@ if ($UseLocalFiles) {
 }
 
 # ---------------------------------------------------------------------------
+# Force an explicit access-token refresh before step1.
+# Re-acquires a fresh access token for ARM before the very first deployment,
+# so step1 does not run on a token that was issued/cached before
+# Set-AzContext switched subscription context above.
+# ---------------------------------------------------------------------------
+Write-Host "`n=== Forcing an explicit access token refresh before step1 ===" -ForegroundColor Cyan
+$step1TokenInfo = Get-AzAccessToken -ResourceUrl "https://management.azure.com"
+if (-not $step1TokenInfo.Token) {
+    throw "Failed to acquire a fresh access token before step1."
+}
+Write-Host "New token acquired (expires on: $($step1TokenInfo.ExpiresOn))" -ForegroundColor Green
+
+# ---------------------------------------------------------------------------
 # Step 1: Deploy the Service Group + infra + Public IP + membership
 # ---------------------------------------------------------------------------
 $step1Name = "step1-$(Get-Date -Format yyyyMMddHHmmss)"
-$step1Result = Invoke-Deployment -DeploymentName $step1Name -TemplateUriOrPath $step1Template -IsUri $isUri
+$step1Result = Invoke-Deployment -DeploymentName $step1Name -TemplateUriOrPath $step1Template -IsUri $isUri -TemplateParameterObject @{ serviceGroupName = $script:ServiceGroupName }
 
-# Both templates derive the same Service Group name from the same default formula
-# ("CaldovaPayApp_Ex3_Task3_SG"), so no explicit parameter needs to be
-# passed to step2 - just read step1's serviceGroupId back for display.
+# serviceGroupName is passed explicitly to both step1 and step2 (see -LabInstanceId above),
+# so the two templates always agree on the name regardless of their independent JSON
+# defaults - just read step1's serviceGroupId back for display.
 $serviceGroupId = $step1Result.Outputs.serviceGroupId.Value
 Write-Host "Service Group created: $serviceGroupId" -ForegroundColor Green
 
@@ -155,7 +190,7 @@ Write-Host "New token acquired (expires on: $($tokenInfo.ExpiresOn))" -Foregroun
 # Service Group created above. There is nothing further for ARM to deploy.
 # ---------------------------------------------------------------------------
 $step2Name = "step2-$(Get-Date -Format yyyyMMddHHmmss)"
-$step2Result = Invoke-Deployment -DeploymentName $step2Name -TemplateUriOrPath $step2Template -IsUri $isUri
+$step2Result = Invoke-Deployment -DeploymentName $step2Name -TemplateUriOrPath $step2Template -IsUri $isUri -TemplateParameterObject @{ serviceGroupName = $script:ServiceGroupName }
 
 Write-Host "`n=== All deployments complete ===" -ForegroundColor Cyan
 Write-Host "Service Group : $serviceGroupId"

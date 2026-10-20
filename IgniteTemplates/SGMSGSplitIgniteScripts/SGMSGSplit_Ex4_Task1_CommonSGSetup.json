@@ -827,7 +827,7 @@
               "zones": "[parameters('zone')]",
               "properties": {
                 "hardwareProfile": {
-                  "vmSize": "Standard_D2as_v5"
+                  "vmSize": "Standard_D2as_v7"
                 },
                 "networkProfile": {
                   "networkInterfaces": [
@@ -959,7 +959,7 @@
               "zones": "[parameters('zone')]",
               "properties": {
                 "hardwareProfile": {
-                  "vmSize": "Standard_D2as_v5"
+                  "vmSize": "Standard_D2as_v7"
                 },
                 "networkProfile": {
                   "networkInterfaces": [
@@ -1084,7 +1084,7 @@
               "location": "[parameters('location')]",
               "properties": {
                 "hardwareProfile": {
-                  "vmSize": "Standard_D2as_v5"
+                  "vmSize": "Standard_D2as_v7"
                 },
                 "networkProfile": {
                   "networkInterfaces": [
@@ -1209,7 +1209,7 @@
               "location": "[parameters('location')]",
               "properties": {
                 "hardwareProfile": {
-                  "vmSize": "Standard_D2as_v5"
+                  "vmSize": "Standard_D2as_v7"
                 },
                 "networkProfile": {
                   "networkInterfaces": [
