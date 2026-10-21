@@ -136,10 +136,10 @@ if ($UseLocalFiles) {
 }
 
 # ---------------------------------------------------------------------------
-# Wait 25 minutes before the pre-step1 access-token refresh.
+# Wait 5 minutes before the pre-step1 access-token refresh.
 # ---------------------------------------------------------------------------
-Write-Host "`n=== Waiting 25 minutes before the pre-step1 token refresh ===" -ForegroundColor Cyan
-Start-Sleep -Seconds 1500
+Write-Host "`n=== Waiting 5 minutes before the pre-step1 token refresh ===" -ForegroundColor Cyan
+Start-Sleep -Seconds 300
 
 # ---------------------------------------------------------------------------
 # Force an explicit access-token refresh before step1.
