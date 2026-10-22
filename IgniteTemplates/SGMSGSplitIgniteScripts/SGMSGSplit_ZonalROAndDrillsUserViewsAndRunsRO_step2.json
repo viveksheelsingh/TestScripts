@@ -1,6 +1,9 @@
 {
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Step2 ordering: all Service Group memberships complete before goal assignment, then Usage Plan, Enrollment, Recovery Plan, and Drill deploy in dependency order."
+  },
   "parameters": {
     "serviceGroupName": {
       "type": "string",
@@ -252,7 +255,18 @@
       "properties": {
         "goalAssignmentType": "[parameters('goalAssignmentType')]",
         "goalTemplateId": "[variables('serviceGroupId')]"
-      }
+      },
+      "dependsOn": [
+        "[extensionResourceId(parameters('vnetId'), 'Microsoft.Relationships/serviceGroupMember', variables('serviceGroupRelationshipId'))]",
+        "[extensionResourceId(parameters('publicIpId'), 'Microsoft.Relationships/serviceGroupMember', variables('serviceGroupRelationshipId'))]",
+        "[extensionResourceId(parameters('loadBalancerId'), 'Microsoft.Relationships/serviceGroupMember', variables('serviceGroupRelationshipId'))]",
+        "[extensionResourceId(parameters('webVm1Id'), 'Microsoft.Relationships/serviceGroupMember', variables('serviceGroupRelationshipId'))]",
+        "[extensionResourceId(parameters('webVm2Id'), 'Microsoft.Relationships/serviceGroupMember', variables('serviceGroupRelationshipId'))]",
+        "[extensionResourceId(parameters('appVm1Id'), 'Microsoft.Relationships/serviceGroupMember', variables('serviceGroupRelationshipId'))]",
+        "[extensionResourceId(parameters('appVm2Id'), 'Microsoft.Relationships/serviceGroupMember', variables('serviceGroupRelationshipId'))]",
+        "[extensionResourceId(parameters('postgresId'), 'Microsoft.Relationships/serviceGroupMember', variables('serviceGroupRelationshipId'))]",
+        "[extensionResourceId(parameters('storageId'), 'Microsoft.Relationships/serviceGroupMember', variables('serviceGroupRelationshipId'))]"
+      ]
     },
     {
       "type": "Microsoft.AzureResilienceManagement/usagePlans",
@@ -262,7 +276,10 @@
       "tags": {},
       "properties": {
         "planType": "Standard"
-      }
+      },
+      "dependsOn": [
+        "[extensionResourceId(variables('serviceGroupId'), 'Microsoft.AzureResilienceManagement/goalAssignments', parameters('zonalGoalAssignmentName'))]"
+      ]
     },
     {
       "type": "Microsoft.AzureResilienceManagement/usagePlans/enrollments",
