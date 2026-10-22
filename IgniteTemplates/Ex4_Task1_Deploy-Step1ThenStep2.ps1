@@ -1,9 +1,10 @@
+#Requires -Version 7.2
 <#
 .SYNOPSIS
     Creates the target resource group if needed, deploys step1 (Service Group + Public IP +
     AHM health model/discovery-rule infra), forces an explicit access-token refresh, then
     deploys step2 (Goal Assignment + Usage Plan/Enrollment + Zonal Recovery Plan + AHM-monitored
-    Drill).
+    Drill), then downloads and runs step3 to configure the existing Zonal RO and Drill readiness.
 
 .DESCRIPTION
     Investigates whether forcing a fresh AAD access token between step1 and step2 clears the
@@ -12,6 +13,13 @@
 
     Uses the Az PowerShell module (Set-AzContext / New-AzResourceGroupDeployment / Get-AzAccessToken)
     to match the tooling already used by the other LAB 721 Skillable scripts (e.g. "Infect").
+
+    Step3 requires PowerShell 7.2+, Azure CLI signed in to the workload tenant/subscription,
+    and downloads Common.psm1 and three post-deployment scripts from GitHub into a temporary
+    directory. No local step3 files are required. It creates/reuses NoOp Automation
+    assets and checks readiness; it never starts a Drill. Cloud prerequisites such as AHM
+    Service Group Reader access must be satisfied. Step3 failures stop this script and retain
+    the post-deployment journal under local application data for investigation/resume.
 
 .PARAMETER ResourceGroupName
     Resource group both templates deploy into. Created automatically if it doesn't already
@@ -41,7 +49,11 @@
 
 .PARAMETER UseLocalFiles
     Switch. If set, uses the local template files in this script's folder instead of fetching
-    them from GitHub via -TemplateUri.
+    them from GitHub via -TemplateUri. Step3 dependencies are still downloaded from GitHub.
+
+.PARAMETER PostDeploymentBaseUri
+    Raw-GitHub base URI containing Common.psm1 and the post-deployment folder. Defaults to
+    the shared IgniteTemplates/SGMSGSplitIgniteScripts folder on main for both variants.
 #>
 [CmdletBinding()]
 param(
@@ -60,6 +72,9 @@ param(
     [ValidateNotNullOrEmpty()]
     [string] $TemplateBaseUri = 'https://raw.githubusercontent.com/viveksheelsingh/TestScripts/main/IgniteTemplates',
 
+    [ValidateNotNullOrEmpty()]
+    [string] $PostDeploymentBaseUri = 'https://raw.githubusercontent.com/viveksheelsingh/TestScripts/main/IgniteTemplates/SGMSGSplitIgniteScripts',
+
     [switch] $UseLocalFiles
 )
 
@@ -70,6 +85,7 @@ $script:ServiceGroupName = "CaldovaPayApp_Ex4_Task1_SG_$LabInstanceId"
 
 $ErrorActionPreference = "Stop"
 $scriptFolder = $PSScriptRoot
+$null = Get-Command az -ErrorAction Stop
 
 function Invoke-Deployment {
     param(
@@ -241,7 +257,35 @@ for ($step2Attempt = 1; $step2Attempt -le $maxStep2Attempts; $step2Attempt++) {
     }
 }
 
-Write-Host "`n=== All deployments complete ===" -ForegroundColor Cyan
+Write-Host "`n=== Step3: Configure existing Zonal RO and Drill readiness ===" -ForegroundColor Cyan
+$step3Params = @{
+    ServiceGroupId = $serviceGroupId
+    RecoveryPlanId = $step2Result.Outputs.recoveryPlanId.Value
+    DrillId        = $step2Result.Outputs.drillId.Value
+}
+foreach ($name in $step3Params.Keys) {
+    if ([string]::IsNullOrWhiteSpace($step3Params[$name])) {
+        throw "Step3 requires a non-empty $name from the completed deployments."
+    }
+}
+$step3Folder = Join-Path ([IO.Path]::GetTempPath()) ("Ex4-ZonalPostDeployment-" + [guid]::NewGuid().ToString('N'))
+try {
+    $null = New-Item -ItemType Directory -Path (Join-Path $step3Folder 'post-deployment')
+    foreach ($relativePath in @('Common.psm1', 'post-deployment\Initialize-ZonalROAndDrill.ps1',
+            'post-deployment\PostDeployment.ps1', 'post-deployment\NoOp.ps1')) {
+        $sourceUri = $PostDeploymentBaseUri.TrimEnd('/') + '/' + $relativePath.Replace('\', '/')
+        Write-Host "Downloading step3 dependency: $sourceUri" -ForegroundColor DarkGray
+        Invoke-WebRequest -Uri $sourceUri -OutFile (Join-Path $step3Folder $relativePath) -ErrorAction Stop
+    }
+    $postDeploymentScript = Join-Path $step3Folder 'post-deployment\Initialize-ZonalROAndDrill.ps1'
+    & $postDeploymentScript @step3Params
+} finally {
+    if (Test-Path -LiteralPath $step3Folder) {
+        Remove-Item -LiteralPath $step3Folder -Recurse -Force
+    }
+}
+
+Write-Host "`n=== All deployments and step3 readiness setup complete ===" -ForegroundColor Cyan
 Write-Host "Service Group          : $serviceGroupId"
 Write-Host "Health Model           : $healthModelId"
 Write-Host "Goal Assignment ID     : $($step2Result.Outputs.goalAssignmentId.Value)"
