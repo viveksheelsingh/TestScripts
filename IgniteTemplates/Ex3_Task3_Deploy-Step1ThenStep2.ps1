@@ -158,8 +158,28 @@ Write-Host "New token acquired (expires on: $($step1TokenInfo.ExpiresOn))" -Fore
 # ---------------------------------------------------------------------------
 # Step 1: Deploy the Service Group + infra + Public IP + membership
 # ---------------------------------------------------------------------------
-$step1Name = "step1-$(Get-Date -Format yyyyMMddHHmmss)"
-$step1Result = Invoke-Deployment -DeploymentName $step1Name -TemplateUriOrPath $step1Template -IsUri $isUri -TemplateParameterObject @{ serviceGroupName = $script:ServiceGroupName }
+# Retry step1 up to 2 times (3 attempts total) if the deployment fails. Safe to
+# retry: step1 deploys with Incremental mode and deterministic resource names
+# (uniqueString(resourceGroup().id)), so resources that already succeeded are
+# left untouched / no-op'd by ARM on the next attempt - only the resource(s)
+# that actually failed (e.g. a transient VM capacity error) get retried.
+$maxStep1Attempts = 3
+$step1Result = $null
+for ($step1Attempt = 1; $step1Attempt -le $maxStep1Attempts; $step1Attempt++) {
+    try {
+        $step1Name = "step1-$(Get-Date -Format yyyyMMddHHmmss)"
+        $step1Result = Invoke-Deployment -DeploymentName $step1Name -TemplateUriOrPath $step1Template -IsUri $isUri -TemplateParameterObject @{ serviceGroupName = $script:ServiceGroupName }
+        break
+    } catch {
+        if ($step1Attempt -ge $maxStep1Attempts) {
+            Write-Host "Step1 failed after $step1Attempt attempt(s). No more retries left." -ForegroundColor Red
+            throw
+        }
+        Write-Host "Step1 attempt $step1Attempt of $maxStep1Attempts failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host "Retrying step1 (attempt $($step1Attempt + 1) of $maxStep1Attempts) after a short delay ..." -ForegroundColor Yellow
+        Start-Sleep -Seconds 60
+    }
+}
 
 # serviceGroupName is passed explicitly to both step1 and step2 (see -LabInstanceId above),
 # so the two templates always agree on the name regardless of their independent JSON
