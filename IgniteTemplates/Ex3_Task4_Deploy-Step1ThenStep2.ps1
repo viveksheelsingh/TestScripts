@@ -213,8 +213,27 @@ Write-Host "New token acquired (expires on: $($tokenInfo.ExpiresOn))" -Foregroun
 # Step 2: Deploy Goal Assignment (agent reads this to surface recommendations
 # and drive remediation - no Recovery Plan/Drill in this scenario)
 # ---------------------------------------------------------------------------
-$step2Name = "step2-$(Get-Date -Format yyyyMMddHHmmss)"
-$step2Result = Invoke-Deployment -DeploymentName $step2Name -TemplateUriOrPath $step2Template -IsUri $isUri -TemplateParameterObject @{ serviceGroupName = $script:ServiceGroupName }
+# Retry step2 up to 2 times (3 attempts total) if the deployment fails. Safe to
+# retry for the same reasons as step1: Incremental mode + deterministic naming
+# mean an already-applied step2 is a no-op on re-run, and only the failed part
+# (if any) is retried.
+$maxStep2Attempts = 3
+$step2Result = $null
+for ($step2Attempt = 1; $step2Attempt -le $maxStep2Attempts; $step2Attempt++) {
+    try {
+        $step2Name = "step2-$(Get-Date -Format yyyyMMddHHmmss)"
+        $step2Result = Invoke-Deployment -DeploymentName $step2Name -TemplateUriOrPath $step2Template -IsUri $isUri -TemplateParameterObject @{ serviceGroupName = $script:ServiceGroupName }
+        break
+    } catch {
+        if ($step2Attempt -ge $maxStep2Attempts) {
+            Write-Host "Step2 failed after $step2Attempt attempt(s). No more retries left." -ForegroundColor Red
+            throw
+        }
+        Write-Host "Step2 attempt $step2Attempt of $maxStep2Attempts failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        Write-Host "Retrying step2 (attempt $($step2Attempt + 1) of $maxStep2Attempts) after a short delay ..." -ForegroundColor Yellow
+        Start-Sleep -Seconds 60
+    }
+}
 
 Write-Host "`n=== All deployments complete ===" -ForegroundColor Cyan
 Write-Host "Service Group      : $serviceGroupId"
