@@ -144,10 +144,10 @@ if ($UseLocalFiles) {
 }
 
 # ---------------------------------------------------------------------------
-# Wait 5 minutes before the pre-step1 access-token refresh.
+# Wait 1 minute before the pre-step1 access-token refresh.
 # ---------------------------------------------------------------------------
-Write-Host "`n=== Waiting 5 minutes before the pre-step1 token refresh ===" -ForegroundColor Cyan
-Start-Sleep -Seconds 300
+Write-Host "`n=== Waiting 1 minute before the pre-step1 token refresh ===" -ForegroundColor Cyan
+Start-Sleep -Seconds 60
 
 # ---------------------------------------------------------------------------
 # Force an explicit access-token refresh before step1.
@@ -185,7 +185,7 @@ for ($step1Attempt = 1; $step1Attempt -le $maxStep1Attempts; $step1Attempt++) {
         }
         Write-Host "Step1 attempt $step1Attempt of $maxStep1Attempts failed: $($_.Exception.Message)" -ForegroundColor Yellow
         Write-Host "Retrying step1 (attempt $($step1Attempt + 1) of $maxStep1Attempts) after a short delay ..." -ForegroundColor Yellow
-        Start-Sleep -Seconds 60
+        Start-Sleep -Seconds 180
     }
 }
 
@@ -256,7 +256,7 @@ for ($step2Attempt = 1; $step2Attempt -le $maxStep2Attempts; $step2Attempt++) {
         }
         Write-Host "Step2 attempt $step2Attempt of $maxStep2Attempts failed: $($_.Exception.Message)" -ForegroundColor Yellow
         Write-Host "Retrying step2 (attempt $($step2Attempt + 1) of $maxStep2Attempts) after a short delay ..." -ForegroundColor Yellow
-        Start-Sleep -Seconds 60
+        Start-Sleep -Seconds 180
     }
 }
 
