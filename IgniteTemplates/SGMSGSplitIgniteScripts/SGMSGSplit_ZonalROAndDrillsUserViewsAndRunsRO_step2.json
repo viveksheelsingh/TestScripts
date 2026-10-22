@@ -5,6 +5,13 @@
     "description": "Step2 ordering: all Service Group memberships complete before goal assignment and the independent Usage Plan, Enrollment, Recovery Plan, and Drill dependency chain."
   },
   "parameters": {
+    "deployGoalAssignment": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Create the goal assignment. On retries or redeployment, set false only after verifying the existing goal has provisioningState Succeeded and requireZonalResiliency true. The PowerShell runners check this on every attempt and reuse the existing goal without another PUT."
+      }
+    },
     "serviceGroupName": {
       "type": "string",
       "minLength": 1,
@@ -249,6 +256,7 @@
     },
     {
       "type": "Microsoft.AzureResilienceManagement/goalAssignments",
+      "condition": "[parameters('deployGoalAssignment')]",
       "apiVersion": "[parameters('goalApiVersion')]",
       "name": "[parameters('zonalGoalAssignmentName')]",
       "scope": "[variables('serviceGroupId')]",

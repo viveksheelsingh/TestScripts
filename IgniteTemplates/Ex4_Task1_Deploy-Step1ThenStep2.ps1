@@ -21,6 +21,12 @@
     Service Group Reader access must be satisfied. Step3 failures stop this script and retain
     the post-deployment journal under local application data for investigation/resume.
 
+    Before each goal-bearing deployment attempt, checks existing goals. A successful
+    zonal goal (including its existing SLI configuration) is reused without another PUT;
+    incompatible, failed, or pending goals
+    stop the attempt with an explicit error. Membership and other resource dependencies
+    remain enforced by the template.
+
 .PARAMETER ResourceGroupName
     Resource group both templates deploy into. Created automatically if it doesn't already
     exist. Defaults to "CaldovaPayApp_Ex4_Task1".
@@ -92,13 +98,45 @@ function Invoke-Deployment {
         [string]$DeploymentName,
         [string]$TemplateUriOrPath,
         [bool]$IsUri,
-        [hashtable]$TemplateParameterObject
+        [hashtable]$TemplateParameterObject,
+        [switch]$IncludesGoalAssignment
     )
 
     $deployArgs = @{
         ResourceGroupName = $ResourceGroupName
         Name              = $DeploymentName
         ErrorAction       = 'Stop'
+    }
+
+    if ($IncludesGoalAssignment) {
+        if (-not $TemplateParameterObject) { $TemplateParameterObject = @{} }
+        $goalScope = $serviceGroupId
+        if ($TemplateParameterObject.serviceGroupName) {
+            $goalScope = "/providers/Microsoft.Management/serviceGroups/$($TemplateParameterObject.serviceGroupName)"
+        } elseif (-not $goalScope -and $serviceGroupName) {
+            $goalScope = "/providers/Microsoft.Management/serviceGroups/$serviceGroupName"
+        }
+        if ($goalScope -notmatch '^/providers/Microsoft\.Management/serviceGroups/[^/]+$') {
+            throw 'Cannot verify the existing goal without a valid Service Group resource ID.'
+        }
+        $goalName = if ($TemplateParameterObject.zonalGoalAssignmentName) { $TemplateParameterObject.zonalGoalAssignmentName } else { 'zonal-ha-assign' }
+        $goalVersion = if ($TemplateParameterObject.goalApiVersion) { $TemplateParameterObject.goalApiVersion } else { '2026-08-31-preview' }
+        $response = Invoke-AzRestMethod -Method GET -Path "$goalScope/providers/Microsoft.AzureResilienceManagement/goalAssignments?api-version=$goalVersion" -ErrorAction Stop
+        if ($response.StatusCode -ne 200) { throw "Goal discovery returned HTTP $($response.StatusCode); refusing to guess whether to create it." }
+        $goals = $response.Content | ConvertFrom-Json -ErrorAction Stop
+        if (-not $goals.PSObject.Properties['value'] -or $goals.value -isnot [array] -or $goals.nextLink) {
+            throw 'Goal discovery returned an incomplete response; refusing to redeploy the goal.'
+        }
+        $existing = @($goals.value)
+        if ($existing.Count -gt 1 -or ($existing.Count -eq 1 -and $existing[0].name -ne $goalName)) {
+            throw "Existing goal assignments do not match the requested goal '$goalName'; review the SG configuration."
+        }
+        if ($existing.Count -eq 1 -and ($existing[0].properties.provisioningState -ne 'Succeeded' -or $existing[0].properties.requireZonalResiliency -isnot [bool] -or $existing[0].properties.requireZonalResiliency -ne $true)) {
+            throw "Existing goal '$goalName' is not a successful zonal goal. State: $($existing[0].properties.provisioningState). Resolve it before retrying."
+        }
+        $TemplateParameterObject['serviceGroupName'] = ($goalScope -split '/')[-1]
+        $TemplateParameterObject['deployGoalAssignment'] = $existing.Count -eq 0
+        Write-Host "$(if ($existing.Count) { 'Reusing existing' } else { 'Creating' }) goal '$goalName' for $goalScope." -ForegroundColor Cyan
     }
 
     if ($IsUri) {
@@ -235,16 +273,16 @@ Write-Host "New token acquired (expires on: $($tokenInfo.ExpiresOn))" -Foregroun
 # Step 2: Deploy Goal Assignment + Usage Plan/Enrollment + Zonal Recovery Plan
 # + AHM-monitored Drill
 # ---------------------------------------------------------------------------
-# Retry step2 up to 2 times (3 attempts total) if the deployment fails. Safe to
-# retry for the same reasons as step1: Incremental mode + deterministic naming
-# mean an already-applied step2 is a no-op on re-run, and only the failed part
-# (if any) is retried.
+# Retry step2 up to 2 times (3 attempts total) if deployment fails.
+# Rediscover the goal before each attempt and reuse a successful zonal goal
+# without another PUT. Other resources are redeployed in Incremental mode
+# with the same deterministic names and dependency ordering.
 $maxStep2Attempts = 3
 $step2Result = $null
 for ($step2Attempt = 1; $step2Attempt -le $maxStep2Attempts; $step2Attempt++) {
     try {
         $step2Name = "step2-$(Get-Date -Format yyyyMMddHHmmss)"
-        $step2Result = Invoke-Deployment -DeploymentName $step2Name -TemplateUriOrPath $step2Template -IsUri $isUri -TemplateParameterObject @{ serviceGroupName = $script:ServiceGroupName }
+        $step2Result = Invoke-Deployment -DeploymentName $step2Name -TemplateUriOrPath $step2Template -IsUri $isUri -TemplateParameterObject @{ serviceGroupName = $script:ServiceGroupName } -IncludesGoalAssignment
         break
     } catch {
         if ($step2Attempt -ge $maxStep2Attempts) {

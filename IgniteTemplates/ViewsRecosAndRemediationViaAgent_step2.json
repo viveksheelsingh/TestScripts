@@ -2,6 +2,13 @@
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
+    "deployGoalAssignment": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Create the goal assignment. On retries or redeployment, set false only after verifying the existing goal has provisioningState Succeeded and requireZonalResiliency true. The PowerShell runners check this on every attempt and reuse the existing goal without another PUT."
+      }
+    },
     "serviceGroupName": {
       "type": "string",
       "minLength": 1,
@@ -38,6 +45,7 @@
   "resources": [
     {
       "type": "Microsoft.AzureResilienceManagement/goalAssignments",
+      "condition": "[parameters('deployGoalAssignment')]",
       "apiVersion": "[parameters('goalApiVersion')]",
       "name": "[parameters('zonalGoalAssignmentName')]",
       "scope": "[variables('serviceGroupId')]",
