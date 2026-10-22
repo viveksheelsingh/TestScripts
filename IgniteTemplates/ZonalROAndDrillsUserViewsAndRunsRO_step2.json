@@ -2,7 +2,7 @@
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "metadata": {
-    "description": "Step1 completes Service Group memberships. Step2 assigns the goal first, then deploys Usage Plan, Enrollment, Recovery Plan, and Drill in dependency order."
+    "description": "Step1 completes Service Group memberships. Step2 deploys goal assignment concurrently with the Usage Plan, Enrollment, Recovery Plan, and Drill dependency chain."
   },
   "parameters": {
     "serviceGroupName": {
@@ -129,10 +129,7 @@
       "tags": {},
       "properties": {
         "planType": "Standard"
-      },
-      "dependsOn": [
-        "[extensionResourceId(variables('serviceGroupId'), 'Microsoft.AzureResilienceManagement/goalAssignments', parameters('zonalGoalAssignmentName'))]"
-      ]
+      }
     },
     {
       "type": "Microsoft.AzureResilienceManagement/usagePlans/enrollments",
