@@ -9,7 +9,7 @@ param(
     [string]$AutomationLocation,
     [Nullable[int]]$FaultDurationInMinutes,
     [string]$StatePath,
-    [string]$RhubArmEndpoint='https://eastus2euap.management.azure.com',
+    [string]$RhubArmEndpoint='https://management.azure.com',
     [ValidateRange(2,120)][int]$TimeoutMinutes=45
 )
 $ErrorActionPreference = 'Stop'

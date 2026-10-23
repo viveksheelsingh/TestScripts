@@ -20,6 +20,7 @@
     assets and checks readiness; it never starts a Drill. Cloud prerequisites such as AHM
     Service Group Reader access must be satisfied. Step3 failures stop this script and retain
     the post-deployment journal under local application data for investigation/resume.
+    Step3 readiness requests use production ARM (https://management.azure.com).
 
     Before each goal-bearing deployment attempt, checks existing goals. A successful
     zonal goal (including its existing SLI configuration) is reused without another PUT;
@@ -297,9 +298,10 @@ for ($step2Attempt = 1; $step2Attempt -le $maxStep2Attempts; $step2Attempt++) {
 
 Write-Host "`n=== Step3: Configure existing Zonal RO and Drill readiness ===" -ForegroundColor Cyan
 $step3Params = @{
-    ServiceGroupId = $serviceGroupId
-    RecoveryPlanId = $step2Result.Outputs.recoveryPlanId.Value
-    DrillId        = $step2Result.Outputs.drillId.Value
+    ServiceGroupId  = $serviceGroupId
+    RecoveryPlanId  = $step2Result.Outputs.recoveryPlanId.Value
+    DrillId         = $step2Result.Outputs.drillId.Value
+    RhubArmEndpoint = 'https://management.azure.com'
 }
 foreach ($name in $step3Params.Keys) {
     if ([string]::IsNullOrWhiteSpace($step3Params[$name])) {
