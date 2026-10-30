@@ -5,8 +5,8 @@
     Uses the SGMSGSplit templates, with existing waits and deployment retries.
     SG-scoped goal assignments, recovery plans and drills are NOT deployed here.
     Run New-ServiceGroupExtensions.ps1 separately after this script succeeds,
-    using the same SubscriptionId and ResourceGroupName. The SG name is read
-    from deployment outputs. Ex4 usage plans/enrollments remain in ARM.
+    using the same SubscriptionId, LabInstanceId and ResourceGroupName, plus
+    ServiceGroupName if overridden. Ex4 usage plans/enrollments remain in ARM.
     Ex4 readiness setup runs separately after extension creation.
 .PARAMETER TemplateBaseUri
     Defaults to this scenario's IgniteTemplates/Ignite_Final folder on GitHub.
@@ -221,5 +221,4 @@ Write-Host "`n=== All deployments complete ===" -ForegroundColor Cyan
 Write-Host "Service Group      : $serviceGroupId"
 Write-Host "Service Group membership for vnet/publicIp/lb/webVm1/webVm2/appVm1/appVm2/postgres/storage created in step2." -ForegroundColor Green
 
-Write-Host "Next: run New-ServiceGroupExtensions.ps1 separately with the same SubscriptionId and ResourceGroupName." -ForegroundColor Yellow
-Write-Host "Completed step2 deployment: $step2Name (pass -DeploymentName to the follow-on script to select it explicitly)."
+Write-Host "Next: run New-ServiceGroupExtensions.ps1 separately with the same SubscriptionId, LabInstanceId and ResourceGroupName." -ForegroundColor Yellow

@@ -4,26 +4,29 @@
     Create the SG-scoped goal AFTER the ARM runner.
 .DESCRIPTION
     Uses Az PowerShell ARM REST calls, not ARM deployments or Azure CLI.
-    Requires a successful Ignite_Final step2 deployment for the same Service Group.
+    Run only after the Ignite_Final ARM runner succeeds.
+    Uses the same fixed RG and per-lab SG naming as the ARM runner, with no
+    deployment-history or output lookup. Pass the same LabInstanceId and any
+    overridden ResourceGroupName/ServiceGroupName.
     Memberships remain in the ARM templates.
     Waits for each resource to finish before proceeding. Reuses existing resources
     without PUT so reruns do not reset goals, SLI, recovery groups or drill setup.
     Retains the tested payloads/API versions from the original templates.
     Does not configure readiness or execute any drill.
-.PARAMETER DeploymentName
-    Completed step2 deployment to use. Defaults to the latest step2-* deployment;
-    a failed latest deployment stops this script rather than falling back.
 .EXAMPLE
-    .\New-ServiceGroupExtensions.ps1 -SubscriptionId '<subscription>' -ResourceGroupName '<same-RG-as-ARM>'
+    .\New-ServiceGroupExtensions.ps1 -SubscriptionId '<subscription>' -LabInstanceId '123'
 #>
 [CmdletBinding()]
 param(
     [ValidateNotNullOrEmpty()]
     [string]$SubscriptionId = '@lab.CloudSubscription.Id',
     [ValidateNotNullOrEmpty()]
+    [string]$LabInstanceId = '@lab.LabInstance.Id',
+    [ValidateNotNullOrEmpty()]
     [string]$ResourceGroupName = 'CaldovaPayApp_Ex3_Task4',
-    [string]$ServiceGroupName,
-    [string]$DeploymentName,
+    [ValidateNotNullOrEmpty()]
+    [ValidatePattern('^[^/]+$')]
+    [string]$ServiceGroupName = "CaldovaPayApp_Ex3_Task4_SG_$LabInstanceId",
     [ValidatePattern('^[^/]+$')]
     [string]$ZonalGoalAssignmentName = 'zonal-ha-assign',
     [string]$GoalApiVersion = '2026-08-31-preview',
@@ -120,21 +123,10 @@ function New-ArmResourceIfMissing {
 }
 
 $null = Set-AzContext -SubscriptionId $SubscriptionId
-if (-not $DeploymentName) {
-    $latest = Get-AzResourceGroupDeployment -ResourceGroupName $ResourceGroupName |
-        Where-Object { $_.DeploymentName -like 'step2-*' } |
-        Sort-Object Timestamp -Descending | Select-Object -First 1
-    if (-not $latest) { throw 'Run the Ignite_Final ARM runner successfully before creating SG extensions.' }
-    $DeploymentName = $latest.DeploymentName
-}
-$deployment = Get-AzResourceGroupDeployment -ResourceGroupName $ResourceGroupName -Name $DeploymentName
-$serviceGroupId = $deployment.Outputs.serviceGroupId.Value
-if ($deployment.ProvisioningState -ne 'Succeeded' -or $serviceGroupId -notmatch '^/providers/Microsoft\.Management/serviceGroups/[^/]+$') {
-    throw "Deployment '$DeploymentName' must be a successful Ignite_Final step2 with a valid Service Group output."
-}
-if ($ServiceGroupName -and $serviceGroupId -ne "/providers/Microsoft.Management/serviceGroups/$ServiceGroupName") {
-    throw "Deployment '$DeploymentName' does not target the requested Service Group '$ServiceGroupName'."
-}
+$resolvedSubscriptionId = (Get-AzContext).Subscription.Id
+$resourceGroupId = "/subscriptions/$resolvedSubscriptionId/resourceGroups/$ResourceGroupName"
+$serviceGroupId = "/providers/Microsoft.Management/serviceGroups/$ServiceGroupName"
+Write-Host "Resource Group: $resourceGroupId`nService Group: $serviceGroupId" -ForegroundColor Cyan
 
 $goalCollection = "$serviceGroupId/providers/Microsoft.AzureResilienceManagement/goalAssignments"
 $response = Invoke-ArmRequest -Path "${goalCollection}?api-version=$GoalApiVersion"

@@ -16,14 +16,15 @@ function Reset-Mocks {
     $global:IgniteFinalTestState = @{
         ServiceGroupId = $sg
         HealthModelId = "$rg/providers/Microsoft.CloudHealth/healthmodels/custom-health-model"
-        EnrollmentId = "$rg/providers/Microsoft.AzureResilienceManagement/usagePlans/custom-plan/enrollments/custom-enrollment"
+        EnrollmentId = "$rg/providers/Microsoft.AzureResilienceManagement/usagePlans/rhqtUsagePlan01/enrollments/rhqtEnrollment01"
         Requests = [Collections.Generic.List[object]]::new()
         Deployments = [Collections.Generic.List[object]]::new()
         Sleeps = [Collections.Generic.List[int]]::new()
         Resources = @{}
         Reads = @{}
         OperationReads = @{}
-        DeploymentState = 'Succeeded'
+        HealthModelCount = 1
+        HealthModelLookups = 0
         GoalListMode = 'normal'
         StaleGoalRead = $false
         OperationMode = 'resource'
@@ -77,13 +78,15 @@ function Get-MockOutputs {
     return $outputs
 }
 function Get-AzResourceGroupDeployment {
-    param($ResourceGroupName, $Name)
-    Assert-True ($ResourceGroupName -eq 'custom-rg') 'Custom RG did not flow to deployment lookup.'
-    [pscustomobject]@{
-        DeploymentName = if ($Name) { $Name } else { 'step2-test' }
-        Timestamp = [datetime]::UtcNow
-        ProvisioningState = $global:IgniteFinalTestState.DeploymentState
-        Outputs = Get-MockOutputs
+    throw 'Follow-on scripts must not query deployment history.'
+}
+function Get-AzResource {
+    param($ResourceGroupName, $ResourceType)
+    $m = $global:IgniteFinalTestState
+    $m.HealthModelLookups++
+    Assert-True ($ResourceGroupName -eq 'custom-rg' -and $ResourceType -eq 'Microsoft.CloudHealth/healthmodels') 'Health Model lookup used the wrong RG or resource type.'
+    for ($i = 0; $i -lt $m.HealthModelCount; $i++) {
+        [pscustomobject]@{ Name = ($m.HealthModelId -split '/')[-1] }
     }
 }
 function New-AzResourceGroupDeployment {
@@ -189,7 +192,7 @@ try {
     $ex4 = (Get-ChildItem -LiteralPath $Root -Directory | Where-Object Name -Like 'Ex4_Task1*').FullName
     $ex3Script = Join-Path $ex3 'New-ServiceGroupExtensions.ps1'
     $ex4Script = Join-Path $ex4 'New-ServiceGroupExtensions.ps1'
-    $scriptArgs = @{ SubscriptionId = 'test-sub'; ResourceGroupName = 'custom-rg'; PollIntervalSeconds = 1 }
+    $scriptArgs = @{ SubscriptionId = 'test-sub'; ResourceGroupName = 'custom-rg'; ServiceGroupName = 'custom-lab-sg'; PollIntervalSeconds = 1 }
 
     Invoke-Case 'All JSON/PowerShell files parse; ARM has no SG-scoped extensions' {
         foreach ($file in Get-ChildItem -LiteralPath $Root -Recurse -File) {
@@ -218,16 +221,16 @@ try {
         }
     }
     foreach ($mode in @('resource', 'async', 'location')) {
-        Invoke-Case "Ex4 creates goal -> recovery plan -> drill; names flow from outputs ($mode)" {
+        Invoke-Case "Ex4 creates goal -> recovery plan -> drill using explicit names ($mode)" {
             $m = $global:IgniteFinalTestState
             $m.OperationMode = $mode
             $result = & $ex4Script @scriptArgs
-            Assert-True ($result.ServiceGroupId -eq $m.ServiceGroupId) 'Custom SG did not flow from deployment output.'
+            Assert-True ($result.ServiceGroupId -eq $m.ServiceGroupId) 'Explicit SG name was not used.'
             $puts = @($m.Requests | Where-Object Method -eq 'PUT')
             Assert-True ($puts.Count -eq 3) 'Expected exactly three SG extension PUTs.'
             Assert-True ($puts[0].Id -like '*/goalAssignments/*' -and $puts[1].Id -like '*/recoveryPlans/*' -and $puts[2].Id -like '*/drills/*') 'Extension creation order changed.'
             foreach ($request in $puts) {
-                Assert-True ($request.Id.StartsWith($m.ServiceGroupId + '/providers/')) 'Extension used a hardcoded SG name.'
+                Assert-True ($request.Id.StartsWith($m.ServiceGroupId + '/providers/')) 'Extension did not target the configured SG name.'
                 $body = $request.Payload | ConvertFrom-Json -AsHashtable
                 Assert-True (-not $body.ContainsKey('scope') -and -not $body.ContainsKey('dependsOn')) 'ARM expressions leaked into a REST payload.'
             }
@@ -235,7 +238,7 @@ try {
             Assert-True (-not $goal.properties.ContainsKey('requireZonalResiliency')) 'Goal request must preserve the supported omitted default.'
             Assert-True ($goal.properties.goalTemplateId -eq $m.ServiceGroupId) 'Goal template ID did not follow the SG.'
             $drill = $puts[2].Payload | ConvertFrom-Json
-            Assert-True ($drill.properties.healthModelMonitoringProperties.healthModelId -eq $m.HealthModelId) 'Health Model ID did not flow from deployment output.'
+            Assert-True ($drill.properties.healthModelMonitoringProperties.healthModelId -eq $m.HealthModelId) 'Health Model ID did not resolve from the configured RG.'
             Assert-True ($drill.properties.drillAssetProperties.subscription -eq 'test-sub') 'Drill subscription did not follow the context.'
             foreach ($i in @(1, 2)) {
                 $currentIndex = $m.Requests.IndexOf($puts[$i])
@@ -256,19 +259,38 @@ try {
         }
     }
     Invoke-Case 'Ex3_Task4 creates only a goal' {
-        $result = & $ex3Script @scriptArgs -DeploymentName 'step2-selected'
+        $result = & $ex3Script @scriptArgs
         $puts = @($global:IgniteFinalTestState.Requests | Where-Object Method -eq 'PUT')
         Assert-True ($puts.Count -eq 1 -and $puts[0].Id -like '*/goalAssignments/*') 'Ex3_Task4 must create only a goal.'
         Assert-True ($result.ServiceGroupId -eq $global:IgniteFinalTestState.ServiceGroupId) 'Ex3 SG output changed.'
     }
-    Invoke-Case 'Failed ARM deployment prevents every extension request' {
-        $global:IgniteFinalTestState.DeploymentState = 'Failed'
-        Assert-Throws { & $ex4Script @scriptArgs } 'successful Ignite_Final step2'
-        Assert-True ($global:IgniteFinalTestState.Requests.Count -eq 0) 'Extensions ran after a failed deployment.'
+    foreach ($scenario in @($ex3, $ex4)) {
+        Invoke-Case "Per-lab SG defaults match the ARM runner without deployment history ($([IO.Path]::GetFileName($scenario)))" {
+            $m = $global:IgniteFinalTestState
+            $runner = Get-ChildItem -LiteralPath $scenario -Filter 'SGMSGSplit_*Deploy*.ps1'
+            $arguments = @{ SubscriptionId = 'test-sub'; LabInstanceId = 'lab-123'; ResourceGroupName = 'custom-rg' }
+            $m.NoRest = $true
+            & $runner.FullName @arguments -UseLocalFiles
+            $m.NoRest = $false
+            $result = & (Join-Path $scenario 'New-ServiceGroupExtensions.ps1') @arguments -PollIntervalSeconds 1
+            Assert-True ($result.ServiceGroupId -eq $m.ServiceGroupId) 'Follow-on SG default does not match the ARM runner.'
+        }
     }
-    Invoke-Case 'Explicit SG mismatch is rejected' {
-        Assert-Throws { & $ex4Script @scriptArgs -ServiceGroupName 'wrong-sg' } 'does not target'
-        Assert-True ($global:IgniteFinalTestState.Requests.Count -eq 0) 'Mismatched SG issued REST calls.'
+    Invoke-Case 'Ex4 explicit prerequisite names bypass Health Model discovery' {
+        $m = $global:IgniteFinalTestState
+        $m.EnrollmentId = '/subscriptions/test-sub/resourceGroups/custom-rg/providers/Microsoft.AzureResilienceManagement/usagePlans/custom-plan/enrollments/custom-enrollment'
+        $m.HealthModelCount = 0
+        $null = & $ex4Script @scriptArgs -UsagePlanName 'custom-plan' -EnrollmentName 'custom-enrollment' -HealthModelName 'custom-health-model'
+        Assert-True ($m.HealthModelLookups -eq 0) 'Explicit Health Model name still triggered discovery.'
+        Assert-True ($m.Requests[0].Id -eq $m.EnrollmentId) 'Explicit usage plan/enrollment names were not used.'
+    }
+    foreach ($count in @(0, 2)) {
+        Invoke-Case "Ex4 refuses missing or ambiguous Health Models (count=$count)" {
+            $m = $global:IgniteFinalTestState
+            $m.HealthModelCount = $count
+            Assert-Throws { & $ex4Script @scriptArgs } 'Pass -HealthModelName explicitly'
+            Assert-True (@($m.Requests | Where-Object Method -eq 'PUT').Count -eq 0) 'Ambiguous Health Model lookup caused extension creation.'
+        }
     }
     foreach ($mode in @('malformed', 'paged')) {
         Invoke-Case "Incomplete goal discovery is rejected ($mode)" {

@@ -7,7 +7,7 @@
     Requires Azure CLI signed in to the workload tenant/subscription, as before.
     Configures the existing recovery plan and drill; never starts a drill.
 .EXAMPLE
-    $extensions = .\New-ServiceGroupExtensions.ps1 -SubscriptionId '<subscription>' -ResourceGroupName '<same-RG-as-ARM>'
+    $extensions = .\New-ServiceGroupExtensions.ps1 -SubscriptionId '<subscription>' -LabInstanceId '123'
     .\Initialize-ServiceGroupReadiness.ps1 -ServiceGroupId $extensions.ServiceGroupId -RecoveryPlanId $extensions.RecoveryPlanId -DrillId $extensions.DrillId
 #>
 [CmdletBinding()]
