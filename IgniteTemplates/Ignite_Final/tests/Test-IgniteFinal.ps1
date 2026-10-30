@@ -31,8 +31,11 @@ function Reset-Mocks {
         FailStep2 = $false
         NoRest = $false
         Downloads = 0
-        AllowReadiness = $false
+        AllowReadiness = $true
         FailReadiness = $false
+        FailReadinessDownload = $false
+        MissingAz = $false
+        ReadinessInvocations = 0
         DownloadedFiles = [Collections.Generic.List[string]]::new()
     }
 }
@@ -48,19 +51,21 @@ function Start-Sleep {
 function Get-Command {
     param($Name)
     if ($Name -ne 'az') { throw "Unexpected command lookup: $Name" }
+    if ($global:IgniteFinalTestState.MissingAz) { throw 'Mock Azure CLI missing' }
     [pscustomobject]@{ Name = 'az'; Source = 'mock-az' }
 }
 function Invoke-WebRequest {
     param($Uri, $OutFile)
     $m = $global:IgniteFinalTestState
     $m.Downloads++
+    if ($m.FailReadinessDownload -and $m.Downloads -eq 2) { throw 'Mock readiness download failure' }
     if ($m.AllowReadiness) {
         Assert-True ($Uri -like 'https://raw.githubusercontent.com/viveksheelsingh/TestScripts/main/IgniteTemplates/SGMSGSplitIgniteScripts/*') 'Readiness no longer targets its unchanged implementation.'
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'fixtures\Record-Readiness.ps1') -Destination $OutFile
         $m.DownloadedFiles.Add($OutFile)
         return
     }
-    throw 'No readiness download is allowed during ARM deployment or extension creation.'
+    throw 'No readiness download is allowed in this test.'
 }
 function Get-MockOutputs {
     $m = $global:IgniteFinalTestState
@@ -245,12 +250,18 @@ try {
                 Assert-True ($m.Sleeps.Contains(7)) 'Retry-After header was not honored.'
                 Assert-True ($m.OperationReads.Values.Count -eq 3) 'Each async operation must be polled.'
             }
-            Assert-True ($m.Downloads -eq 0) 'Extension creation must not start readiness.'
+            Assert-True ($m.Downloads -eq 4 -and $m.ReadinessInvocations -eq 1) 'Ex4 follow-on did not automatically configure readiness.'
+            Assert-True ($m.ReadinessArguments.ServiceGroupId -eq $result.ServiceGroupId -and
+                $m.ReadinessArguments.RecoveryPlanId -eq $result.RecoveryPlanId -and
+                $m.ReadinessArguments.DrillId -eq $result.DrillId) 'Integrated readiness did not receive the created extension IDs.'
+            $lastPutIndex = $m.Requests.IndexOf($puts[-1])
+            Assert-True ($m.RequestsBeforeReadiness -gt $lastPutIndex + 1) 'Readiness ran before final drill provisioning was checked.'
             $before = $m.Resources | ConvertTo-Json -Depth 30 -Compress
             $m.Requests.Clear()
             $null = & $ex4Script @scriptArgs
             Assert-True (@($m.Requests | Where-Object Method -eq 'PUT').Count -eq 0) 'Rerun must not PUT existing goals/plans/drills.'
             Assert-True (($m.Resources | ConvertTo-Json -Depth 30 -Compress) -eq $before) 'Rerun changed an existing resource.'
+            Assert-True ($m.ReadinessInvocations -eq 2) 'Rerun skipped integrated readiness configuration.'
         }
     }
     Invoke-Case 'Ex3_Task4 creates only a goal' {
@@ -258,6 +269,7 @@ try {
         $puts = @($global:IgniteFinalTestState.Requests | Where-Object Method -eq 'PUT')
         Assert-True ($puts.Count -eq 1 -and $puts[0].Id -like '*/goalAssignments/*') 'Ex3_Task4 must create only a goal.'
         Assert-True ($result.ServiceGroupId -eq $global:IgniteFinalTestState.ServiceGroupId) 'Ex3 SG output changed.'
+        Assert-True ($global:IgniteFinalTestState.Downloads -eq 0) 'Ex3_Task4 must not run Ex4 readiness.'
     }
     foreach ($scenario in @($ex3, $ex4)) {
         Invoke-Case "Per-lab SG defaults match the ARM runner without deployment history ($([IO.Path]::GetFileName($scenario)))" {
@@ -339,6 +351,24 @@ try {
         $m.FailedResourceType = '/recoveryPlans/'
         Assert-Throws { & $ex4Script @scriptArgs } 'Provisioning failed'
         Assert-True (@($m.Requests | Where-Object Method -eq 'PUT').Count -eq 2) 'Drill ran after recovery plan failure.'
+        Assert-True ($m.Downloads -eq 0) 'Readiness ran after a provisioning failure.'
+    }
+    Invoke-Case 'Missing Azure CLI fails before creating Ex4 extensions' {
+        $global:IgniteFinalTestState.MissingAz = $true
+        Assert-Throws { & $ex4Script @scriptArgs } 'Mock Azure CLI missing'
+        Assert-True ($global:IgniteFinalTestState.Requests.Count -eq 0) 'Extensions were created before readiness prerequisites were checked.'
+    }
+    foreach ($failure in @('download', 'configuration')) {
+        Invoke-Case "Integrated readiness failure stops Ex4 and cleans temporary files ($failure)" {
+            $m = $global:IgniteFinalTestState
+            $m.FailReadinessDownload = $failure -eq 'download'
+            $m.FailReadiness = $failure -eq 'configuration'
+            Assert-Throws { & $ex4Script @scriptArgs } 'Mock readiness'
+            Assert-True (@($m.Requests | Where-Object Method -eq 'PUT').Count -eq 3) 'Readiness ran before all extensions were created.'
+            foreach ($path in $m.DownloadedFiles) {
+                Assert-True (-not (Test-Path -LiteralPath $path)) 'Integrated readiness did not clean temporary files after failure.'
+            }
+        }
     }
     foreach ($failure in @($false, $true)) {
         Invoke-Case "Separate Ex4 readiness wrapper passes actual IDs and cleans up (failure=$failure)" {

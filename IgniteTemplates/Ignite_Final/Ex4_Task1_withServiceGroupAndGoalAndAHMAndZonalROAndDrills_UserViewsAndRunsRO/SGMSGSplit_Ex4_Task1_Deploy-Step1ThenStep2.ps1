@@ -8,7 +8,7 @@
     Run New-ServiceGroupExtensions.ps1 separately after this script succeeds,
     using the same SubscriptionId, LabInstanceId and ResourceGroupName, plus
     ServiceGroupName if overridden. Ex4 usage plans/enrollments remain in ARM.
-    Ex4 readiness setup runs separately after extension creation.
+    The follow-on script configures RO/Drill readiness automatically after creation.
 .PARAMETER TemplateBaseUri
     Defaults to this scenario's IgniteTemplates/Ignite_Final folder on GitHub.
 .PARAMETER UseLocalFiles

@@ -1,9 +1,10 @@
 #Requires -Version 7.2
 <#
 .SYNOPSIS
-    Create the SG-scoped goal, Zonal recovery plan and drill AFTER the ARM runner.
+    Create SG extensions and configure Zonal RO/Drill readiness AFTER the ARM runner.
 .DESCRIPTION
-    Uses Az PowerShell ARM REST calls, not ARM deployments or Azure CLI.
+    Creates extensions using Az PowerShell ARM REST calls, not ARM deployments.
+    Readiness setup requires Azure CLI signed in to the workload tenant/subscription.
     Run only after the Ignite_Final ARM runner succeeds.
     Uses the same fixed RG and per-lab SG naming as the ARM runner, with no
     deployment-history or output lookup. Pass the same LabInstanceId and any
@@ -12,13 +13,17 @@
     Waits for each resource to finish before proceeding. Reuses existing resources
     without PUT so reruns do not reset goals, SLI, recovery groups or drill setup.
     Retains the tested payloads/API versions from the original templates.
-    Does not configure readiness or execute any drill.
+    Automatically downloads and runs the existing RO/Drill readiness configuration
+    after all extensions succeed. Readiness failures stop this script. Never
+    starts a drill, fault, failover or recovery.
 .PARAMETER HealthModelName
     Fixed Health Model name, matching the Ignite_Final ARM runner and templates.
     When overridden in the ARM runner, pass the same name here.
+.PARAMETER PostDeploymentBaseUri
+    Base URI for the existing Common.psm1 and post-deployment readiness scripts.
+    All dependencies are downloaded automatically; no local helper is required.
 .EXAMPLE
-    $extensions = .\New-ServiceGroupExtensions.ps1 -SubscriptionId '<subscription>' -LabInstanceId '123'
-    .\Initialize-ServiceGroupReadiness.ps1 -ServiceGroupId $extensions.ServiceGroupId -RecoveryPlanId $extensions.RecoveryPlanId -DrillId $extensions.DrillId
+    .\New-ServiceGroupExtensions.ps1 -SubscriptionId '<subscription>' -LabInstanceId '123'
 #>
 [CmdletBinding()]
 param(
@@ -52,6 +57,8 @@ param(
     [string]$DrillRegion = 'westcentralus',
     [string]$DrillResourceGroupName = 'IRM',
     [string]$DrillApiVersion = '2026-10-01',
+    [ValidateNotNullOrEmpty()]
+    [string]$PostDeploymentBaseUri = 'https://raw.githubusercontent.com/viveksheelsingh/TestScripts/main/IgniteTemplates/SGMSGSplitIgniteScripts',
     [ValidateRange(1, 120)]
     [int]$TimeoutMinutes = 45,
     [ValidateRange(1, 300)]
@@ -59,6 +66,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$null = Get-Command az -ErrorAction Stop
 
 function Invoke-ArmRequest {
     param([string]$Method = 'GET', [string]$Path, [string]$Payload, [switch]$AllowNotFound)
@@ -235,7 +243,29 @@ $drill = New-ArmResourceIfMissing -ResourceId $drillId -ApiVersion $DrillApiVers
 if ($drill.properties.drillType -ne 'Zonal' -or $drill.properties.healthModelMonitoringProperties.healthModelId -ne $healthModelId) {
     throw "Existing drill '$drillId' does not match the Zonal type and Health Model."
 }
-Write-Host 'SG extensions complete. Run Initialize-ServiceGroupReadiness.ps1 next; no drill has been started.' -ForegroundColor Green
+Write-Host 'SG extensions complete. Configuring Zonal RO and Drill readiness.' -ForegroundColor Cyan
+$readinessParams = @{
+    ServiceGroupId = $serviceGroupId
+    RecoveryPlanId = $recoveryPlanId
+    DrillId = $drillId
+    RhubArmEndpoint = 'https://management.azure.com'
+}
+$readinessFolder = Join-Path ([IO.Path]::GetTempPath()) ("Ex4-ZonalPostDeployment-" + [guid]::NewGuid().ToString('N'))
+try {
+    $null = New-Item -ItemType Directory -Path (Join-Path $readinessFolder 'post-deployment')
+    foreach ($relativePath in @('Common.psm1', 'post-deployment\Initialize-ZonalROAndDrill.ps1',
+            'post-deployment\PostDeployment.ps1', 'post-deployment\NoOp.ps1')) {
+        $sourceUri = $PostDeploymentBaseUri.TrimEnd('/') + '/' + $relativePath.Replace('\', '/')
+        Write-Host "Downloading readiness dependency: $sourceUri" -ForegroundColor DarkGray
+        Invoke-WebRequest -Uri $sourceUri -OutFile (Join-Path $readinessFolder $relativePath) -ErrorAction Stop
+    }
+    $null = & (Join-Path $readinessFolder 'post-deployment\Initialize-ZonalROAndDrill.ps1') @readinessParams
+} finally {
+    if (Test-Path -LiteralPath $readinessFolder) {
+        Remove-Item -LiteralPath $readinessFolder -Recurse -Force
+    }
+}
+Write-Host 'SG extensions and RO/Drill readiness configuration complete; no drill has been started.' -ForegroundColor Green
 [pscustomobject]@{
     ServiceGroupId = $serviceGroupId
     GoalAssignmentId = $goalId

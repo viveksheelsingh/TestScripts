@@ -1,14 +1,15 @@
 #Requires -Version 7.2
 <#
 .SYNOPSIS
-    Run the original Ex4 readiness setup AFTER New-ServiceGroupExtensions.ps1.
+    Standalone readiness repair/retry for an existing Ex4 recovery plan and drill.
 .DESCRIPTION
     Downloads the existing, unchanged readiness implementation and Common.psm1.
+    Normal setup is already integrated into New-ServiceGroupExtensions.ps1;
+    this script is only needed to run readiness configuration independently.
     Requires Azure CLI signed in to the workload tenant/subscription, as before.
     Configures the existing recovery plan and drill; never starts a drill.
 .EXAMPLE
-    $extensions = .\New-ServiceGroupExtensions.ps1 -SubscriptionId '<subscription>' -LabInstanceId '123'
-    .\Initialize-ServiceGroupReadiness.ps1 -ServiceGroupId $extensions.ServiceGroupId -RecoveryPlanId $extensions.RecoveryPlanId -DrillId $extensions.DrillId
+    .\Initialize-ServiceGroupReadiness.ps1 -ServiceGroupId '<sg-id>' -RecoveryPlanId '<ro-id>' -DrillId '<drill-id>'
 #>
 [CmdletBinding()]
 param(
