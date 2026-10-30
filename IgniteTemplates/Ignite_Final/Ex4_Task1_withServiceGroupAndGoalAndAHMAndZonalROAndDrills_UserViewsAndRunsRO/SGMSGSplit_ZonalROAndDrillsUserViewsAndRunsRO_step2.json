@@ -1,0 +1,239 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Ignite_Final: ARM creates memberships and, for Ex4, usage plan/enrollment. Run New-ServiceGroupExtensions.ps1 AFTER the ARM runner succeeds to create SG-scoped goals, recovery plans and drills."
+  },
+  "parameters": {
+    "serviceGroupName": {
+      "type": "string",
+      "minLength": 1,
+      "defaultValue": "CaldovaPayApp_Ex4_Task1_SG",
+      "metadata": {
+        "description": "Name of the already-existing Service Group (created by step1) to assign a resilience goal to. Default matches step1's default naming formula so both templates chain together in the same resource group with no parameters."
+      }
+    },
+    "usagePlanName": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 24,
+      "defaultValue": "rhqtUsagePlan01",
+      "metadata": {
+        "description": "Name of the Standard Usage Plan (RG + subscription scoped)."
+      }
+    },
+    "enrollmentName": {
+      "type": "string",
+      "defaultValue": "rhqtEnrollment01",
+      "metadata": {
+        "description": "Name of the enrollment child resource binding the Service Group to the Usage Plan."
+      }
+    },
+    "roApiVersion": {
+      "type": "string",
+      "defaultValue": "2026-06-01-preview",
+      "metadata": {
+        "description": "apiVersion for usagePlans/enrollments/recoveryPlans. A Usage Plan + Enrollment must exist before a recoveryPlans resource can be created against the Service Group (RHBLUserErrorNotEnrolled otherwise)."
+      }
+    },
+    "healthModelName": {
+      "type": "string",
+      "defaultValue": "[format('ahm-{0}', uniqueString(resourceGroup().id))]",
+      "metadata": {
+        "description": "Name of the Azure Health Model created by step1. Default matches step1's naming formula. Used to build the Health Model's own resourceId referenced by the Drill's healthModelMonitoringProperties.healthModelId."
+      }
+    },
+    "vnetId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID read from step1's 'vnetId' output and passed in by the deploy script, so the Service Group membership relationship below can be created here in step2 - well after step1's Service Group creation, avoiding the serviceGroups/read RBAC-propagation race seen when membership relationships were created in the same deployment as the Service Group itself."
+      }
+    },
+    "publicIpId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID read from step1's 'publicIpId' output and passed in by the deploy script, so the Service Group membership relationship below can be created here in step2 - well after step1's Service Group creation, avoiding the serviceGroups/read RBAC-propagation race seen when membership relationships were created in the same deployment as the Service Group itself."
+      }
+    },
+    "loadBalancerId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID read from step1's 'loadBalancerId' output and passed in by the deploy script, so the Service Group membership relationship below can be created here in step2 - well after step1's Service Group creation, avoiding the serviceGroups/read RBAC-propagation race seen when membership relationships were created in the same deployment as the Service Group itself."
+      }
+    },
+    "webVm1Id": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID read from step1's 'webVm1Id' output and passed in by the deploy script, so the Service Group membership relationship below can be created here in step2 - well after step1's Service Group creation, avoiding the serviceGroups/read RBAC-propagation race seen when membership relationships were created in the same deployment as the Service Group itself."
+      }
+    },
+    "webVm2Id": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID read from step1's 'webVm2Id' output and passed in by the deploy script, so the Service Group membership relationship below can be created here in step2 - well after step1's Service Group creation, avoiding the serviceGroups/read RBAC-propagation race seen when membership relationships were created in the same deployment as the Service Group itself."
+      }
+    },
+    "appVm1Id": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID read from step1's 'appVm1Id' output and passed in by the deploy script, so the Service Group membership relationship below can be created here in step2 - well after step1's Service Group creation, avoiding the serviceGroups/read RBAC-propagation race seen when membership relationships were created in the same deployment as the Service Group itself."
+      }
+    },
+    "appVm2Id": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID read from step1's 'appVm2Id' output and passed in by the deploy script, so the Service Group membership relationship below can be created here in step2 - well after step1's Service Group creation, avoiding the serviceGroups/read RBAC-propagation race seen when membership relationships were created in the same deployment as the Service Group itself."
+      }
+    },
+    "postgresId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID read from step1's 'postgresId' output and passed in by the deploy script, so the Service Group membership relationship below can be created here in step2 - well after step1's Service Group creation, avoiding the serviceGroups/read RBAC-propagation race seen when membership relationships were created in the same deployment as the Service Group itself."
+      }
+    },
+    "storageId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID read from step1's 'storageId' output and passed in by the deploy script, so the Service Group membership relationship below can be created here in step2 - well after step1's Service Group creation, avoiding the serviceGroups/read RBAC-propagation race seen when membership relationships were created in the same deployment as the Service Group itself."
+      }
+    }
+  },
+  "variables": {
+    "serviceGroupId": "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]",
+    "healthModelNameValue": "[parameters('healthModelName')]",
+    "serviceGroupRelationshipId": "[format('default{0}', parameters('serviceGroupName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('vnetId')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('publicIpId')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('loadBalancerId')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('webVm1Id')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('webVm2Id')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('appVm1Id')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('appVm2Id')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('postgresId')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('storageId')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.AzureResilienceManagement/usagePlans",
+      "apiVersion": "[parameters('roApiVersion')]",
+      "name": "[parameters('usagePlanName')]",
+      "location": "global",
+      "tags": {},
+      "properties": {
+        "planType": "Standard"
+      },
+      "dependsOn": [
+        "[extensionResourceId(parameters('vnetId'), 'Microsoft.Relationships/serviceGroupMember', variables('serviceGroupRelationshipId'))]",
+        "[extensionResourceId(parameters('publicIpId'), 'Microsoft.Relationships/serviceGroupMember', variables('serviceGroupRelationshipId'))]",
+        "[extensionResourceId(parameters('loadBalancerId'), 'Microsoft.Relationships/serviceGroupMember', variables('serviceGroupRelationshipId'))]",
+        "[extensionResourceId(parameters('webVm1Id'), 'Microsoft.Relationships/serviceGroupMember', variables('serviceGroupRelationshipId'))]",
+        "[extensionResourceId(parameters('webVm2Id'), 'Microsoft.Relationships/serviceGroupMember', variables('serviceGroupRelationshipId'))]",
+        "[extensionResourceId(parameters('appVm1Id'), 'Microsoft.Relationships/serviceGroupMember', variables('serviceGroupRelationshipId'))]",
+        "[extensionResourceId(parameters('appVm2Id'), 'Microsoft.Relationships/serviceGroupMember', variables('serviceGroupRelationshipId'))]",
+        "[extensionResourceId(parameters('postgresId'), 'Microsoft.Relationships/serviceGroupMember', variables('serviceGroupRelationshipId'))]",
+        "[extensionResourceId(parameters('storageId'), 'Microsoft.Relationships/serviceGroupMember', variables('serviceGroupRelationshipId'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.AzureResilienceManagement/usagePlans/enrollments",
+      "apiVersion": "[parameters('roApiVersion')]",
+      "name": "[format('{0}/{1}', parameters('usagePlanName'), parameters('enrollmentName'))]",
+      "properties": {
+        "serviceGroupId": "[variables('serviceGroupId')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.AzureResilienceManagement/usagePlans', parameters('usagePlanName'))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "usagePlanId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.AzureResilienceManagement/usagePlans', parameters('usagePlanName'))]"
+    },
+    "enrollmentId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.AzureResilienceManagement/usagePlans/enrollments', parameters('usagePlanName'), parameters('enrollmentName'))]"
+    },
+    "serviceGroupId": {
+      "type": "string",
+      "value": "[variables('serviceGroupId')]"
+    },
+    "healthModelId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.CloudHealth/healthmodels', variables('healthModelNameValue'))]"
+    }
+  }
+}

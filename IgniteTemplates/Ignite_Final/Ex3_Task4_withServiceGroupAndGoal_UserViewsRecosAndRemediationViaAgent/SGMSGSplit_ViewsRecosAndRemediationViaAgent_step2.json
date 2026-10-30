@@ -1,0 +1,164 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Ignite_Final: ARM creates memberships and, for Ex4, usage plan/enrollment. Run New-ServiceGroupExtensions.ps1 AFTER the ARM runner succeeds to create SG-scoped goals, recovery plans and drills."
+  },
+  "parameters": {
+    "serviceGroupName": {
+      "type": "string",
+      "minLength": 1,
+      "defaultValue": "CaldovaPayApp_Ex3_Task4_SG",
+      "metadata": {
+        "description": "Name of the already-existing Service Group (created by step1) to assign a resilience goal to. Default matches step1's default naming formula so both templates chain together in the same resource group with no parameters."
+      }
+    },
+    "vnetId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID read from step1's 'vnetId' output and passed in by the deploy script, so the Service Group membership relationship below can be created here in step2 - well after step1's Service Group creation, avoiding the serviceGroups/read RBAC-propagation race seen when membership relationships were created in the same deployment as the Service Group itself."
+      }
+    },
+    "publicIpId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID read from step1's 'publicIpId' output and passed in by the deploy script, so the Service Group membership relationship below can be created here in step2 - well after step1's Service Group creation, avoiding the serviceGroups/read RBAC-propagation race seen when membership relationships were created in the same deployment as the Service Group itself."
+      }
+    },
+    "loadBalancerId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID read from step1's 'loadBalancerId' output and passed in by the deploy script, so the Service Group membership relationship below can be created here in step2 - well after step1's Service Group creation, avoiding the serviceGroups/read RBAC-propagation race seen when membership relationships were created in the same deployment as the Service Group itself."
+      }
+    },
+    "webVm1Id": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID read from step1's 'webVm1Id' output and passed in by the deploy script, so the Service Group membership relationship below can be created here in step2 - well after step1's Service Group creation, avoiding the serviceGroups/read RBAC-propagation race seen when membership relationships were created in the same deployment as the Service Group itself."
+      }
+    },
+    "webVm2Id": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID read from step1's 'webVm2Id' output and passed in by the deploy script, so the Service Group membership relationship below can be created here in step2 - well after step1's Service Group creation, avoiding the serviceGroups/read RBAC-propagation race seen when membership relationships were created in the same deployment as the Service Group itself."
+      }
+    },
+    "appVm1Id": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID read from step1's 'appVm1Id' output and passed in by the deploy script, so the Service Group membership relationship below can be created here in step2 - well after step1's Service Group creation, avoiding the serviceGroups/read RBAC-propagation race seen when membership relationships were created in the same deployment as the Service Group itself."
+      }
+    },
+    "appVm2Id": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID read from step1's 'appVm2Id' output and passed in by the deploy script, so the Service Group membership relationship below can be created here in step2 - well after step1's Service Group creation, avoiding the serviceGroups/read RBAC-propagation race seen when membership relationships were created in the same deployment as the Service Group itself."
+      }
+    },
+    "postgresId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID read from step1's 'postgresId' output and passed in by the deploy script, so the Service Group membership relationship below can be created here in step2 - well after step1's Service Group creation, avoiding the serviceGroups/read RBAC-propagation race seen when membership relationships were created in the same deployment as the Service Group itself."
+      }
+    },
+    "storageId": {
+      "type": "string",
+      "metadata": {
+        "description": "Resource ID read from step1's 'storageId' output and passed in by the deploy script, so the Service Group membership relationship below can be created here in step2 - well after step1's Service Group creation, avoiding the serviceGroups/read RBAC-propagation race seen when membership relationships were created in the same deployment as the Service Group itself."
+      }
+    }
+  },
+  "variables": {
+    "serviceGroupId": "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]",
+    "serviceGroupRelationshipId": "[format('default{0}', parameters('serviceGroupName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('vnetId')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('publicIpId')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('loadBalancerId')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('webVm1Id')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('webVm2Id')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('appVm1Id')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('appVm2Id')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('postgresId')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('storageId')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    }
+  ],
+  "outputs": {
+    "serviceGroupId": {
+      "type": "string",
+      "value": "[variables('serviceGroupId')]"
+    }
+  }
+}
