@@ -34,9 +34,9 @@
     },
     "healthModelName": {
       "type": "string",
-      "defaultValue": "[format('ahm-{0}', uniqueString(resourceGroup().id))]",
+      "defaultValue": "ahm-ex4-task1",
       "metadata": {
-        "description": "Azure Health Model (Microsoft.CloudHealth/healthmodels) created against this Service Group. step2's Drill references this via healthModelMonitoringProperties.healthModelId."
+        "description": "Fixed Azure Health Model name, matching step2 and New-ServiceGroupExtensions.ps1. The separately created Drill references its resource ID."
       }
     }
   },

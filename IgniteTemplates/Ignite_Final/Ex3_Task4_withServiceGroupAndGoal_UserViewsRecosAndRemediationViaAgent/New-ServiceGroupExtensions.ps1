@@ -123,8 +123,7 @@ function New-ArmResourceIfMissing {
 }
 
 $null = Set-AzContext -SubscriptionId $SubscriptionId
-$resolvedSubscriptionId = (Get-AzContext).Subscription.Id
-$resourceGroupId = "/subscriptions/$resolvedSubscriptionId/resourceGroups/$ResourceGroupName"
+$resourceGroupId = "/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroupName"
 $serviceGroupId = "/providers/Microsoft.Management/serviceGroups/$ServiceGroupName"
 Write-Host "Resource Group: $resourceGroupId`nService Group: $serviceGroupId" -ForegroundColor Cyan
 

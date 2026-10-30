@@ -14,8 +14,8 @@
     Retains the tested payloads/API versions from the original templates.
     Does not configure readiness or execute any drill.
 .PARAMETER HealthModelName
-    Existing Health Model name. When omitted, uses the single Health Model in the
-    target RG. Its ARM-generated name is not read from deployment history.
+    Fixed Health Model name, matching the Ignite_Final ARM runner and templates.
+    When overridden in the ARM runner, pass the same name here.
 .EXAMPLE
     $extensions = .\New-ServiceGroupExtensions.ps1 -SubscriptionId '<subscription>' -LabInstanceId '123'
     .\Initialize-ServiceGroupReadiness.ps1 -ServiceGroupId $extensions.ServiceGroupId -RecoveryPlanId $extensions.RecoveryPlanId -DrillId $extensions.DrillId
@@ -35,7 +35,8 @@ param(
     [string]$UsagePlanName = 'rhqtUsagePlan01',
     [ValidateNotNullOrEmpty()]
     [string]$EnrollmentName = 'rhqtEnrollment01',
-    [string]$HealthModelName,
+    [ValidateNotNullOrEmpty()]
+    [string]$HealthModelName = 'ahm-ex4-task1',
     [ValidatePattern('^[^/]+$')]
     [string]$ZonalGoalAssignmentName = 'zonal-ha-assign',
     [string]$GoalApiVersion = '2026-08-31-preview',
@@ -144,20 +145,12 @@ function New-ArmResourceIfMissing {
 }
 
 $null = Set-AzContext -SubscriptionId $SubscriptionId
-$resolvedSubscriptionId = (Get-AzContext).Subscription.Id
-$resourceGroupId = "/subscriptions/$resolvedSubscriptionId/resourceGroups/$ResourceGroupName"
+$resourceGroupId = "/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroupName"
 $serviceGroupId = "/providers/Microsoft.Management/serviceGroups/$ServiceGroupName"
 Write-Host "Resource Group: $resourceGroupId`nService Group: $serviceGroupId" -ForegroundColor Cyan
 
 # Ex4 prerequisites remain ARM-managed and must be complete before SG extensions.
 $enrollmentId = "$resourceGroupId/providers/Microsoft.AzureResilienceManagement/usagePlans/$UsagePlanName/enrollments/$EnrollmentName"
-if (-not $HealthModelName) {
-    $healthModels = @(Get-AzResource -ResourceGroupName $ResourceGroupName -ResourceType 'Microsoft.CloudHealth/healthmodels' -ErrorAction Stop)
-    if ($healthModels.Count -ne 1) {
-        throw "Expected one Health Model in '$ResourceGroupName'; found $($healthModels.Count). Pass -HealthModelName explicitly."
-    }
-    $HealthModelName = $healthModels[0].Name
-}
 $healthModelId = "$resourceGroupId/providers/Microsoft.CloudHealth/healthmodels/$HealthModelName"
 $enrollment = Wait-ArmResource -ResourceId $enrollmentId -ApiVersion $RoApiVersion
 if ($enrollment.properties.serviceGroupId -ne $serviceGroupId) {
@@ -225,7 +218,7 @@ $drill = New-ArmResourceIfMissing -ResourceId $drillId -ApiVersion $DrillApiVers
         drillAssetProperties = @{
             region = $DrillRegion
             resourceGroup = $DrillResourceGroupName
-            subscription = $resolvedSubscriptionId
+            subscription = $SubscriptionId
         }
         chaosResourceProperties = @{
             chaosResourceIdentityForFaults = @{ type = 'SystemAssigned' }

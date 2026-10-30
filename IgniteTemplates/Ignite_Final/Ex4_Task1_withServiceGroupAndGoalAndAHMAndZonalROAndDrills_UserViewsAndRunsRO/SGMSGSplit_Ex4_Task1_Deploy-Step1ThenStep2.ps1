@@ -32,6 +32,9 @@ param(
     [string] $ServiceGroupName = "CaldovaPayApp_Ex4_Task1_SG_$LabInstanceId",
 
     [ValidateNotNullOrEmpty()]
+    [string] $HealthModelName = 'ahm-ex4-task1',
+
+    [ValidateNotNullOrEmpty()]
     [string] $TemplateBaseUri = 'https://raw.githubusercontent.com/viveksheelsingh/TestScripts/main/IgniteTemplates/Ignite_Final/Ex4_Task1_withServiceGroupAndGoalAndAHMAndZonalROAndDrills_UserViewsAndRunsRO',
 
     [switch] $UseLocalFiles
@@ -144,7 +147,7 @@ $step1Result = $null
 for ($step1Attempt = 1; $step1Attempt -le $maxStep1Attempts; $step1Attempt++) {
     try {
         $step1Name = "step1-$(Get-Date -Format yyyyMMddHHmmss)"
-        $step1Result = Invoke-Deployment -DeploymentName $step1Name -TemplateUriOrPath $step1Template -IsUri $isUri -TemplateParameterObject @{ serviceGroupName = $script:ServiceGroupName }
+        $step1Result = Invoke-Deployment -DeploymentName $step1Name -TemplateUriOrPath $step1Template -IsUri $isUri -TemplateParameterObject @{ serviceGroupName = $script:ServiceGroupName; healthModelName = $HealthModelName }
         break
     } catch {
         if ($step1Attempt -ge $maxStep1Attempts) {
@@ -159,8 +162,8 @@ for ($step1Attempt = 1; $step1Attempt -le $maxStep1Attempts; $step1Attempt++) {
 
 # serviceGroupName is passed explicitly to both step1 and step2 (see -LabInstanceId above),
 # so the two templates always agree on the name regardless of their independent JSON
-# defaults. Same applies to the Health Model name ("ahm-{uniqueString(resourceGroup().id)}"),
-# returned by step2 for the separate extension-creation script.
+# defaults. The fixed Health Model name is also passed explicitly to both steps;
+# pass the same name to the follow-on script if overriding it here.
 $serviceGroupId = $step1Result.Outputs.serviceGroupId.Value
 $healthModelId = $step1Result.Outputs.healthModelId.Value
 Write-Host "Service Group created : $serviceGroupId" -ForegroundColor Green
@@ -198,6 +201,7 @@ Write-Host "New token acquired (expires on: $($tokenInfo.ExpiresOn))" -Foregroun
 # ---------------------------------------------------------------------------
 $step2Params = @{
     serviceGroupName = $script:ServiceGroupName
+    healthModelName  = $HealthModelName
     vnetId           = $step1Result.Outputs.vnetId.Value
     publicIpId       = $step1Result.Outputs.publicIpId.Value
     loadBalancerId   = $step1Result.Outputs.loadBalancerId.Value

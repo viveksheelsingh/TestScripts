@@ -15,7 +15,7 @@ function Reset-Mocks {
     $rg = '/subscriptions/test-sub/resourceGroups/custom-rg'
     $global:IgniteFinalTestState = @{
         ServiceGroupId = $sg
-        HealthModelId = "$rg/providers/Microsoft.CloudHealth/healthmodels/custom-health-model"
+        HealthModelId = "$rg/providers/Microsoft.CloudHealth/healthmodels/ahm-ex4-task1"
         EnrollmentId = "$rg/providers/Microsoft.AzureResilienceManagement/usagePlans/rhqtUsagePlan01/enrollments/rhqtEnrollment01"
         Requests = [Collections.Generic.List[object]]::new()
         Deployments = [Collections.Generic.List[object]]::new()
@@ -23,8 +23,6 @@ function Reset-Mocks {
         Resources = @{}
         Reads = @{}
         OperationReads = @{}
-        HealthModelCount = 1
-        HealthModelLookups = 0
         GoalListMode = 'normal'
         StaleGoalRead = $false
         OperationMode = 'resource'
@@ -40,7 +38,7 @@ function Reset-Mocks {
 }
 
 function Set-AzContext { param($SubscriptionId) }
-function Get-AzContext { [pscustomobject]@{ Subscription = @{ Id = 'test-sub' } } }
+function Get-AzContext { throw 'Follow-on scripts must use the supplied SubscriptionId, not context discovery.' }
 function Get-AzResourceGroup { param($Name) [pscustomobject]@{ Location = 'test-location' } }
 function Get-AzAccessToken { param($ResourceUrl) @{ Token = 'mock'; ExpiresOn = 'mock' } }
 function Start-Sleep {
@@ -81,13 +79,7 @@ function Get-AzResourceGroupDeployment {
     throw 'Follow-on scripts must not query deployment history.'
 }
 function Get-AzResource {
-    param($ResourceGroupName, $ResourceType)
-    $m = $global:IgniteFinalTestState
-    $m.HealthModelLookups++
-    Assert-True ($ResourceGroupName -eq 'custom-rg' -and $ResourceType -eq 'Microsoft.CloudHealth/healthmodels') 'Health Model lookup used the wrong RG or resource type.'
-    for ($i = 0; $i -lt $m.HealthModelCount; $i++) {
-        [pscustomobject]@{ Name = ($m.HealthModelId -split '/')[-1] }
-    }
+    throw 'Follow-on scripts must not discover resource names.'
 }
 function New-AzResourceGroupDeployment {
     param($ResourceGroupName, $Name, $TemplateFile, $TemplateUri, $TemplateParameterObject)
@@ -105,7 +97,10 @@ function New-AzResourceGroupDeployment {
         Assert-True ($null -ne $template.parameters.PSObject.Properties[$key]) "Runner parameter '$key' is missing from its template."
     }
     $m.ServiceGroupId = "/providers/Microsoft.Management/serviceGroups/$($TemplateParameterObject.serviceGroupName)"
-    $m.Deployments.Add(@{ Name = $Name; Template = $template })
+    if ($TemplateParameterObject.ContainsKey('healthModelName')) {
+        $m.HealthModelId = "/subscriptions/test-sub/resourceGroups/custom-rg/providers/Microsoft.CloudHealth/healthmodels/$($TemplateParameterObject.healthModelName)"
+    }
+    $m.Deployments.Add(@{ Name = $Name; Template = $template; Parameters = $TemplateParameterObject })
     if ($m.FailStep2 -and $Name -like 'step2-*') { throw 'Mock step2 failure' }
     [pscustomobject]@{ Outputs = Get-MockOutputs; ProvisioningState = 'Succeeded' }
 }
@@ -238,7 +233,7 @@ try {
             Assert-True (-not $goal.properties.ContainsKey('requireZonalResiliency')) 'Goal request must preserve the supported omitted default.'
             Assert-True ($goal.properties.goalTemplateId -eq $m.ServiceGroupId) 'Goal template ID did not follow the SG.'
             $drill = $puts[2].Payload | ConvertFrom-Json
-            Assert-True ($drill.properties.healthModelMonitoringProperties.healthModelId -eq $m.HealthModelId) 'Health Model ID did not resolve from the configured RG.'
+            Assert-True ($drill.properties.healthModelMonitoringProperties.healthModelId -eq $m.HealthModelId) 'Health Model ID did not use the fixed name and configured RG.'
             Assert-True ($drill.properties.drillAssetProperties.subscription -eq 'test-sub') 'Drill subscription did not follow the context.'
             foreach ($i in @(1, 2)) {
                 $currentIndex = $m.Requests.IndexOf($puts[$i])
@@ -276,21 +271,32 @@ try {
             Assert-True ($result.ServiceGroupId -eq $m.ServiceGroupId) 'Follow-on SG default does not match the ARM runner.'
         }
     }
-    Invoke-Case 'Ex4 explicit prerequisite names bypass Health Model discovery' {
+    Invoke-Case 'Ex4 explicit prerequisite names work without any name discovery' {
         $m = $global:IgniteFinalTestState
         $m.EnrollmentId = '/subscriptions/test-sub/resourceGroups/custom-rg/providers/Microsoft.AzureResilienceManagement/usagePlans/custom-plan/enrollments/custom-enrollment'
-        $m.HealthModelCount = 0
+        $m.HealthModelId = '/subscriptions/test-sub/resourceGroups/custom-rg/providers/Microsoft.CloudHealth/healthmodels/custom-health-model'
         $null = & $ex4Script @scriptArgs -UsagePlanName 'custom-plan' -EnrollmentName 'custom-enrollment' -HealthModelName 'custom-health-model'
-        Assert-True ($m.HealthModelLookups -eq 0) 'Explicit Health Model name still triggered discovery.'
         Assert-True ($m.Requests[0].Id -eq $m.EnrollmentId) 'Explicit usage plan/enrollment names were not used.'
+        $drillPut = $m.Requests | Where-Object { $_.Method -eq 'PUT' -and $_.Id -like '*/drills/*' }
+        $drill = $drillPut.Payload | ConvertFrom-Json
+        Assert-True ($drill.properties.healthModelMonitoringProperties.healthModelId -eq $m.HealthModelId) 'Explicit Health Model name was not used.'
     }
-    foreach ($count in @(0, 2)) {
-        Invoke-Case "Ex4 refuses missing or ambiguous Health Models (count=$count)" {
-            $m = $global:IgniteFinalTestState
-            $m.HealthModelCount = $count
-            Assert-Throws { & $ex4Script @scriptArgs } 'Pass -HealthModelName explicitly'
-            Assert-True (@($m.Requests | Where-Object Method -eq 'PUT').Count -eq 0) 'Ambiguous Health Model lookup caused extension creation.'
+    Invoke-Case 'Ex4 ARM steps and follow-on share an overridden Health Model name without lookup' {
+        $m = $global:IgniteFinalTestState
+        $runner = Get-ChildItem -LiteralPath $ex4 -Filter 'SGMSGSplit_*Deploy*.ps1'
+        $arguments = @{
+            SubscriptionId = 'test-sub'; LabInstanceId = 'lab-123'; ResourceGroupName = 'custom-rg'
+            HealthModelName = 'custom-health-model'
         }
+        $m.NoRest = $true
+        & $runner.FullName @arguments -UseLocalFiles
+        Assert-True ($m.Deployments[0].Parameters.healthModelName -eq 'custom-health-model' -and
+            $m.Deployments[1].Parameters.healthModelName -eq 'custom-health-model') 'ARM steps did not receive the same explicit Health Model name.'
+        $m.NoRest = $false
+        $null = & $ex4Script @arguments -PollIntervalSeconds 1
+        $drillPut = $m.Requests | Where-Object { $_.Method -eq 'PUT' -and $_.Id -like '*/drills/*' }
+        $drill = $drillPut.Payload | ConvertFrom-Json
+        Assert-True ($drill.properties.healthModelMonitoringProperties.healthModelId -eq $m.HealthModelId) 'Drill did not use the Health Model created by the ARM runner.'
     }
     foreach ($mode in @('malformed', 'paged')) {
         Invoke-Case "Incomplete goal discovery is rejected ($mode)" {

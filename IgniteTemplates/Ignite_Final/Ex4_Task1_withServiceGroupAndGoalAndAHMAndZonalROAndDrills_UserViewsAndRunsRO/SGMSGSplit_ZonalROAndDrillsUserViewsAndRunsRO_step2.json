@@ -38,9 +38,9 @@
     },
     "healthModelName": {
       "type": "string",
-      "defaultValue": "[format('ahm-{0}', uniqueString(resourceGroup().id))]",
+      "defaultValue": "ahm-ex4-task1",
       "metadata": {
-        "description": "Name of the Azure Health Model created by step1. Default matches step1's naming formula. Used to build the Health Model's own resourceId referenced by the Drill's healthModelMonitoringProperties.healthModelId."
+        "description": "Fixed Health Model name matching step1 and New-ServiceGroupExtensions.ps1. Used to return the Health Model resource ID."
       }
     },
     "vnetId": {
