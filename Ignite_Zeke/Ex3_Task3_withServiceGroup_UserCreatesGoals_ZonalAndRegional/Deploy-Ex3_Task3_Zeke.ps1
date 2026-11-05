@@ -20,7 +20,8 @@
     The infrastructure-state tag is diagnostic only. Ex4 attempts RO/Drill readiness
     after step2, even if all three deployment attempts failed, using fixed resource IDs.
     Remaining deployment/configuration errors are reported after the readiness attempt.
-    Local templates are preferred; otherwise the fresh templates are loaded from Ignite_Zeke.
+    Local templates beside the .ps1 are preferred. Inline lifecycle actions without a
+    script folder load the fresh templates from Ignite_Zeke unless UseLocalFiles is set.
 
     Requires a Skillable scoped deployment app with rights on the exercise RG, shared RG
     and Service Groups, and Graph rights for the temporary-secret/user-lookup workflow.
@@ -168,12 +169,15 @@ function Test-ExistingGoal {
 function Invoke-Deployment {
     param([string] $Prefix, [string] $Template, [hashtable] $Parameters,
         [int] $MaxAttempts = 3, [int] $RetryDelaySeconds = 180, [switch] $StopOnAllocationError)
-    $localPath = Join-Path $PSScriptRoot $Template
+    $localPath = $null
+    if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+        $localPath = Join-Path $PSScriptRoot $Template
+    }
     $arguments = @{ ResourceGroupName = $ResourceGroupName; TemplateParameterObject = $Parameters; ErrorAction = 'Stop' }
-    if (Test-Path -LiteralPath $localPath) {
+    if ($localPath -and (Test-Path -LiteralPath $localPath)) {
         $arguments.TemplateFile = $localPath
     } elseif ($UseLocalFiles) {
-        throw "Required local template is missing: $localPath"
+        throw "Required local template is missing: $Template. Run the .ps1 from its template folder, or omit -UseLocalFiles to use GitHub."
     } else {
         $arguments.TemplateUri = "$($TemplateBaseUri.TrimEnd('/'))/$Template"
     }
