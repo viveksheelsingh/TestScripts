@@ -1,35 +1,13 @@
 #Requires -Version 7.2
 <#
 .SYNOPSIS
-    Ex3_Task4: resource-reuse optimization with best-effort soft failure.
+    Ex3_Task4: GitHub-only templates with best-effort deployment continuation.
 .DESCRIPTION
-    Ex3_Task1 remains an independent full-resource deployment plus discovery-agent setup.
-    Only Ex3_Task3 provisions the shared infrastructure used by Ex3_Task3, Ex3_Task4
-    and Ex4_Task1. Later exercises create their own deployment RG and Service Group,
-    but neither deploy nor delete shared infrastructure. SharedResourceGroupName selects
-    the source RG; for Ex3_Task3 it follows ResourceGroupName.
-
-    Every infrastructure module is attempted separately in dependency order, preserving
-    the copied resource definitions, SKUs and native prerequisites. Each membership
-    is a separate attempt in a nested deployment scoped to the shared source RG.
-    Missing resources or a missing source RG do not gate goals or later configuration.
-    Ex3_Task3 leaves goal creation to the learner. Ex3_Task4 attempts its zonal goal.
-    Only Ex4_Task1 creates AHM/usage plan/enrollment/RO/Drill and attempts readiness.
-    AHM lives in Ex4's own RG; its Reader assignment targets the shared source RG.
-    Existing goals are checked before every attempt and are not overwritten.
-
-    Resource/RBAC/configuration failures produce warnings and a final failure summary,
-    not an aggregate script failure. Authentication, invalid inputs and missing/invalid
-    templates remain fatal. Existing/partial RGs are never deleted or moved. Regional
-    fallback may only remove a confirmed-empty RG created and tagged by this run.
-    Successful resources are retained. The script does not execute a recovery or drill.
-
-    Exactly one entry-point PS1 per exercise. Local templates are preferred; inline
-    execution downloads ONLY this version's templates from Ignite_Zeke_Optimized_SoftFailure by default.
-    Set TemplateBaseUri to an empty string to use bundled copies instead. UseLocalFiles
-    requires adjacent files. Ex4 readiness is bundled and uses Az PowerShell, not az CLI.
-    Outside Skillable, infrastructure-owning exercises require AdministratorPassword
-    as a SecureString. Later exercises do not require or pass that password.
+    Creates its own deployment RG and SG, memberships from SharedResourceGroupName,
+    and a protected zonal goal. Does not deploy or delete shared infrastructure.
+    Templates are always downloaded from TemplateBaseUri (GitHub by default).
+    No embedded or adjacent-file fallback. Template/authentication/input failures
+    remain fatal; resource/stage failures finish with warnings. Uses Az PowerShell only.
 #>
 [CmdletBinding()]
 param(
@@ -38,7 +16,6 @@ param(
     [string] $Location = 'southcentralus',
     [string] $TemplateBaseUri = 'https://raw.githubusercontent.com/viveksheelsingh/TestScripts/main/Ignite_Zeke_Optimized_SoftFailure/Ex3_Task4_withServiceGroupAndGoal_UserViewsRecosAndRemediationViaAgent',
     [securestring] $AdministratorPassword,
-    [switch] $UseLocalFiles,
     [string] $TenantId = '@lab.CloudSubscription.TenantId',
     [string] $LabInstanceId = '@lab.LabInstance.Id',
     [string] $UserUpn = '@lab.CloudPortalCredential(User1).Username',
@@ -50,380 +27,6 @@ param(
 $TaskName = 'Ex3_Task4'
 $OwnsInfrastructure = $false
 $LocationWasSpecified = $PSBoundParameters.ContainsKey('Location')
-
-$EmbeddedTemplates = @{
-'Ex3_Task4_Configuration.json' = @'
-{
-  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-  "contentVersion": "1.0.0.0",
-  "metadata": {
-    "description": "Independent shared-RG memberships and best-effort configuration phases; no all-membership success gate."
-  },
-  "parameters": {
-    "location": {
-      "type": "string",
-      "defaultValue": "southcentralus"
-    },
-    "tags": {
-      "type": "object",
-      "defaultValue": {}
-    },
-    "serviceGroupName": {
-      "type": "string",
-      "minLength": 1,
-      "defaultValue": "CaldovaPayApp_Ex3_Task4_SG",
-      "metadata": {
-        "description": "Name of the already-existing Service Group (created by step1) to assign a resilience goal to. Default matches step1's default naming formula so both templates chain together in the same resource group with no parameters."
-      }
-    },
-    "serviceGroupDisplayName": {
-      "type": "string",
-      "defaultValue": "[parameters('serviceGroupName')]"
-    },
-    "serviceGroupParentId": {
-      "type": "string",
-      "defaultValue": "",
-      "metadata": {
-        "description": "Optional parent Service Group resource ID. Leave empty for a root-level Service Group (defaults to the tenant-root Service Group)."
-      }
-    },
-    "sharedResourceGroupName": {
-      "type": "string",
-      "defaultValue": "CaldovaPayApp_Ex3_Task3"
-    },
-    "deployGoalAssignment": {
-      "type": "bool",
-      "defaultValue": true,
-      "metadata": {
-        "description": "Create the goal assignment. On retries or redeployment, set false only after verifying the existing goal has provisioningState Succeeded and requireZonalResiliency true. The PowerShell runners check this on every attempt and reuse the existing goal without another PUT."
-      }
-    },
-    "zonalGoalAssignmentName": {
-      "type": "string",
-      "defaultValue": "zonal-ha-assign",
-      "metadata": {
-        "description": "Name of the goal assignment. Only one goalAssignment is allowed per Service Group."
-      }
-    },
-    "goalAssignmentType": {
-      "type": "string",
-      "defaultValue": "Resiliency",
-      "metadata": {
-        "description": "Only 'Resiliency' is accepted."
-      }
-    },
-    "goalApiVersion": {
-      "type": "string",
-      "defaultValue": "2026-08-31-preview",
-      "metadata": {
-        "description": "No separate goalTemplates resource is needed on this apiVersion or later. A standalone goalTemplates resource's write is hard-blocked (DisallowedResourceOperation) on every apiVersion - do not add one. goalTemplateId instead points at the Service Group's own resource ID. Do not set requireZonalResiliency explicitly - both true and false are currently rejected (RHUBUserErrorInvalidRequestParameter); omitting it yields the only supported default (true)."
-      }
-    },
-    "phase": {
-      "type": "string",
-      "defaultValue": "ServiceGroup",
-      "allowedValues": [
-        "ServiceGroup",
-        "HealthModel",
-        "Goal",
-        "UsagePlan",
-        "Enrollment",
-        "RecoveryPlan",
-        "Drill",
-        "Membership"
-      ]
-    },
-    "memberKey": {
-      "type": "string",
-      "defaultValue": "",
-      "allowedValues": [
-        "",
-        "vnetId",
-        "publicIpId",
-        "loadBalancerId",
-        "webVm1Id",
-        "webVm2Id",
-        "appVm1Id",
-        "appVm2Id",
-        "postgresId",
-        "storageId"
-      ]
-    }
-  },
-  "variables": {
-    "serviceGroupResourceId": "[format('/providers/Microsoft.Management/serviceGroups/{0}', parameters('serviceGroupName'))]",
-    "serviceGroupRelationshipId": "[format('default{0}', parameters('serviceGroupName'))]",
-    "vnetNameValue": "[format('vnet-{0}', uniqueString(variables('sharedResourceGroupId')))]",
-    "publicIpNameValue": "[format('pubip-{0}', uniqueString(variables('sharedResourceGroupId')))]",
-    "lbNameValue": "[format('web-lb-{0}', uniqueString(variables('sharedResourceGroupId')))]",
-    "webVm1NameValue": "[format('web-vm-1-{0}', uniqueString(variables('sharedResourceGroupId')))]",
-    "webVm2NameValue": "[format('web-vm-2-{0}', uniqueString(variables('sharedResourceGroupId')))]",
-    "appVm1NameValue": "[format('app-vm-1-{0}', uniqueString(variables('sharedResourceGroupId')))]",
-    "appVm2NameValue": "[format('app-vm-2-{0}', uniqueString(variables('sharedResourceGroupId')))]",
-    "pgServerNameValue": "[format('pg-flex-{0}', uniqueString(variables('sharedResourceGroupId')))]",
-    "storageNameValue": "[format('st{0}', uniqueString(variables('sharedResourceGroupId')))]",
-    "sharedResourceGroupId": "[format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('sharedResourceGroupName'))]",
-    "serviceGroupId": "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]",
-    "vnetId": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Network/virtualNetworks', format('vnet-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
-    "publicIpId": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Network/publicIPAddresses', format('pubip-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
-    "loadBalancerId": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Network/loadBalancers', format('web-lb-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
-    "webVm1Id": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Compute/virtualMachines', format('web-vm-1-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
-    "webVm2Id": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Compute/virtualMachines', format('web-vm-2-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
-    "appVm1Id": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Compute/virtualMachines', format('app-vm-1-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
-    "appVm2Id": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Compute/virtualMachines', format('app-vm-2-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
-    "postgresId": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.DBforPostgreSQL/flexibleServers', format('pg-flex-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
-    "storageId": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Storage/storageAccounts', format('st{0}', uniqueString(variables('sharedResourceGroupId'))))]"
-  },
-  "resources": [
-    {
-      "type": "Microsoft.Management/serviceGroups",
-      "apiVersion": "2024-02-01-preview",
-      "scope": "/",
-      "name": "[parameters('serviceGroupName')]",
-      "properties": "[createObject('displayName', parameters('serviceGroupDisplayName'), 'parent', createObject('resourceId', if(empty(parameters('serviceGroupParentId')), format('/providers/Microsoft.Management/serviceGroups/{0}', tenant().tenantId), parameters('serviceGroupParentId'))))]",
-      "condition": "[equals(parameters('phase'), 'ServiceGroup')]"
-    },
-    {
-      "type": "Microsoft.AzureResilienceManagement/goalAssignments",
-      "condition": "[and(equals(parameters('phase'), 'Goal'), parameters('deployGoalAssignment'))]",
-      "apiVersion": "[parameters('goalApiVersion')]",
-      "name": "[parameters('zonalGoalAssignmentName')]",
-      "scope": "[variables('serviceGroupId')]",
-      "properties": {
-        "goalAssignmentType": "[parameters('goalAssignmentType')]",
-        "goalTemplateId": "[variables('serviceGroupId')]"
-      }
-    },
-    {
-      "type": "Microsoft.Resources/deployments",
-      "apiVersion": "2025-04-01",
-      "name": "[format('shared-membership-{0}-{1}', parameters('memberKey'), uniqueString(parameters('serviceGroupName')))]",
-      "condition": "[equals(parameters('phase'), 'Membership')]",
-      "subscriptionId": "[subscription().subscriptionId]",
-      "resourceGroup": "[parameters('sharedResourceGroupName')]",
-      "properties": {
-        "mode": "Incremental",
-        "expressionEvaluationOptions": {
-          "scope": "inner"
-        },
-        "parameters": {
-          "serviceGroupName": {
-            "value": "[parameters('serviceGroupName')]"
-          },
-          "memberKey": {
-            "value": "[parameters('memberKey')]"
-          },
-          "vnetId": {
-            "value": "[variables('vnetId')]"
-          },
-          "publicIpId": {
-            "value": "[variables('publicIpId')]"
-          },
-          "loadBalancerId": {
-            "value": "[variables('loadBalancerId')]"
-          },
-          "webVm1Id": {
-            "value": "[variables('webVm1Id')]"
-          },
-          "webVm2Id": {
-            "value": "[variables('webVm2Id')]"
-          },
-          "appVm1Id": {
-            "value": "[variables('appVm1Id')]"
-          },
-          "appVm2Id": {
-            "value": "[variables('appVm2Id')]"
-          },
-          "postgresId": {
-            "value": "[variables('postgresId')]"
-          },
-          "storageId": {
-            "value": "[variables('storageId')]"
-          }
-        },
-        "template": {
-          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-          "contentVersion": "1.0.0.0",
-          "parameters": {
-            "serviceGroupName": {
-              "type": "string"
-            },
-            "memberKey": {
-              "type": "string"
-            },
-            "vnetId": {
-              "type": "string"
-            },
-            "publicIpId": {
-              "type": "string"
-            },
-            "loadBalancerId": {
-              "type": "string"
-            },
-            "webVm1Id": {
-              "type": "string"
-            },
-            "webVm2Id": {
-              "type": "string"
-            },
-            "appVm1Id": {
-              "type": "string"
-            },
-            "appVm2Id": {
-              "type": "string"
-            },
-            "postgresId": {
-              "type": "string"
-            },
-            "storageId": {
-              "type": "string"
-            }
-          },
-          "variables": {
-            "serviceGroupId": "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]",
-            "serviceGroupRelationshipId": "[format('default{0}', parameters('serviceGroupName'))]"
-          },
-          "resources": [
-            {
-              "type": "Microsoft.Relationships/serviceGroupMember",
-              "apiVersion": "2023-09-01-preview",
-              "name": "[variables('serviceGroupRelationshipId')]",
-              "scope": "[parameters('vnetId')]",
-              "properties": {
-                "targetId": "[variables('serviceGroupId')]"
-              },
-              "condition": "[equals(parameters('memberKey'), 'vnetId')]"
-            },
-            {
-              "type": "Microsoft.Relationships/serviceGroupMember",
-              "apiVersion": "2023-09-01-preview",
-              "name": "[variables('serviceGroupRelationshipId')]",
-              "scope": "[parameters('publicIpId')]",
-              "properties": {
-                "targetId": "[variables('serviceGroupId')]"
-              },
-              "condition": "[equals(parameters('memberKey'), 'publicIpId')]"
-            },
-            {
-              "type": "Microsoft.Relationships/serviceGroupMember",
-              "apiVersion": "2023-09-01-preview",
-              "name": "[variables('serviceGroupRelationshipId')]",
-              "scope": "[parameters('loadBalancerId')]",
-              "properties": {
-                "targetId": "[variables('serviceGroupId')]"
-              },
-              "condition": "[equals(parameters('memberKey'), 'loadBalancerId')]"
-            },
-            {
-              "type": "Microsoft.Relationships/serviceGroupMember",
-              "apiVersion": "2023-09-01-preview",
-              "name": "[variables('serviceGroupRelationshipId')]",
-              "scope": "[parameters('webVm1Id')]",
-              "properties": {
-                "targetId": "[variables('serviceGroupId')]"
-              },
-              "condition": "[equals(parameters('memberKey'), 'webVm1Id')]"
-            },
-            {
-              "type": "Microsoft.Relationships/serviceGroupMember",
-              "apiVersion": "2023-09-01-preview",
-              "name": "[variables('serviceGroupRelationshipId')]",
-              "scope": "[parameters('webVm2Id')]",
-              "properties": {
-                "targetId": "[variables('serviceGroupId')]"
-              },
-              "condition": "[equals(parameters('memberKey'), 'webVm2Id')]"
-            },
-            {
-              "type": "Microsoft.Relationships/serviceGroupMember",
-              "apiVersion": "2023-09-01-preview",
-              "name": "[variables('serviceGroupRelationshipId')]",
-              "scope": "[parameters('appVm1Id')]",
-              "properties": {
-                "targetId": "[variables('serviceGroupId')]"
-              },
-              "condition": "[equals(parameters('memberKey'), 'appVm1Id')]"
-            },
-            {
-              "type": "Microsoft.Relationships/serviceGroupMember",
-              "apiVersion": "2023-09-01-preview",
-              "name": "[variables('serviceGroupRelationshipId')]",
-              "scope": "[parameters('appVm2Id')]",
-              "properties": {
-                "targetId": "[variables('serviceGroupId')]"
-              },
-              "condition": "[equals(parameters('memberKey'), 'appVm2Id')]"
-            },
-            {
-              "type": "Microsoft.Relationships/serviceGroupMember",
-              "apiVersion": "2023-09-01-preview",
-              "name": "[variables('serviceGroupRelationshipId')]",
-              "scope": "[parameters('postgresId')]",
-              "properties": {
-                "targetId": "[variables('serviceGroupId')]"
-              },
-              "condition": "[equals(parameters('memberKey'), 'postgresId')]"
-            },
-            {
-              "type": "Microsoft.Relationships/serviceGroupMember",
-              "apiVersion": "2023-09-01-preview",
-              "name": "[variables('serviceGroupRelationshipId')]",
-              "scope": "[parameters('storageId')]",
-              "properties": {
-                "targetId": "[variables('serviceGroupId')]"
-              },
-              "condition": "[equals(parameters('memberKey'), 'storageId')]"
-            }
-          ]
-        }
-      }
-    }
-  ],
-  "outputs": {
-    "serviceGroupId": {
-      "type": "string",
-      "value": "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]"
-    },
-    "vnetId": {
-      "type": "string",
-      "value": "[variables('vnetId')]"
-    },
-    "publicIpId": {
-      "type": "string",
-      "value": "[variables('publicIpId')]"
-    },
-    "loadBalancerId": {
-      "type": "string",
-      "value": "[variables('loadBalancerId')]"
-    },
-    "webVm1Id": {
-      "type": "string",
-      "value": "[variables('webVm1Id')]"
-    },
-    "webVm2Id": {
-      "type": "string",
-      "value": "[variables('webVm2Id')]"
-    },
-    "appVm1Id": {
-      "type": "string",
-      "value": "[variables('appVm1Id')]"
-    },
-    "appVm2Id": {
-      "type": "string",
-      "value": "[variables('appVm2Id')]"
-    },
-    "postgresId": {
-      "type": "string",
-      "value": "[variables('postgresId')]"
-    },
-    "storageId": {
-      "type": "string",
-      "value": "[variables('storageId')]"
-    }
-  }
-}
-'@
-}
 
 $HasGoal = $true
 $HasHealthModel = $false
@@ -534,24 +137,20 @@ function Invoke-WithRetry {
 
 function Get-LabTemplate {
     param([string] $Name)
-    $localPath = $null
-    if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
-        $localPath = Join-Path $PSScriptRoot $Name
-    }
-    if ($localPath -and (Test-Path -LiteralPath $localPath)) {
-        return Get-Content -LiteralPath $localPath -Raw | ConvertFrom-Json -AsHashtable
-    }
-    if ($UseLocalFiles) {
-        throw "Required template '$Name' is missing. Run the .ps1 from its template folder, or omit -UseLocalFiles and supply a published -TemplateBaseUri."
-    }
     if ([string]::IsNullOrWhiteSpace($TemplateBaseUri)) {
-        return $EmbeddedTemplates[$Name] | ConvertFrom-Json -AsHashtable
+        throw "TemplateBaseUri is required. Supply the GitHub folder containing '$Name'."
     }
     Invoke-WithRetry {
-        Invoke-RestMethod -Uri "$($TemplateBaseUri.TrimEnd('/'))/$Name" -ErrorAction Stop |
+        $template = Invoke-RestMethod -Uri "$($TemplateBaseUri.TrimEnd('/'))/$Name" -ErrorAction Stop |
             ConvertTo-Json -Depth 100 | ConvertFrom-Json -AsHashtable
+        if ($template -isnot [Collections.IDictionary] -or -not $template.Contains('$schema') -or
+                $template.parameters -isnot [Collections.IDictionary] -or $template.resources -isnot [array]) {
+            throw "Downloaded '$Name' is not an ARM template."
+        }
+        return $template
     }
 }
+
 
 function Get-LabResourceGroup {
     param([string] $Name)

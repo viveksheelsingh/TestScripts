@@ -1,15 +1,13 @@
 #Requires -Version 7.2
 <#
 .SYNOPSIS
-    Ex3_Task1: full-template infrastructure with best-effort continuation.
+    Ex3_Task1: GitHub-only templates with best-effort deployment continuation.
 .DESCRIPTION
     Creates independent infrastructure, then attempts discovery-agent RG, agent and Reader setup.
     Infrastructure gets three attempts in the selected/existing RG region; no regional fallback.
-    ARM handles parallelism/dependencies in one full-template submission per attempt.
-    Partial resources are retained. Resource/stage failures finish with warnings;
-    authentication, input and template errors remain fatal. Uses Az PowerShell only.
-    Local JSON is preferred, otherwise TemplateBaseUri is used. Set it empty for
-    bundled GZip-compressed JSON; UseLocalFiles requires adjacent templates.
+    Templates are always downloaded from TemplateBaseUri (GitHub by default).
+    No embedded or adjacent-file fallback. Template/authentication/input failures
+    remain fatal; resource/stage failures finish with warnings. Uses Az PowerShell only.
 #>
 [CmdletBinding()]
 param(
@@ -18,7 +16,6 @@ param(
     [string] $Location = 'southcentralus',
     [string] $TemplateBaseUri = 'https://raw.githubusercontent.com/viveksheelsingh/TestScripts/main/Ignite_Zeke_Optimized_SoftFailure/Ex3_Task1_UserDiscoverAndCreateSGAndDiscAgent',
     [securestring] $AdministratorPassword,
-    [switch] $UseLocalFiles,
     [string] $AgentResourceGroupName = 'CaldovaPayApp_Ex3_Task1_DiscoveryAgent',
     [string] $AgentResourceGroupLocation = 'southcentralus',
     [string] $AgentName = 'app-discovery-ex3task1',
@@ -31,21 +28,6 @@ param(
 )
 $TaskName = 'Ex3_Task1'
 $OwnsInfrastructure = $true
-
-function Expand-LabTemplate {
-    param([string] $Data)
-    $stream = [IO.MemoryStream]::new([Convert]::FromBase64String($Data))
-    try {
-        $gzip = [IO.Compression.GZipStream]::new($stream, [IO.Compression.CompressionMode]::Decompress)
-        $reader = [IO.StreamReader]::new($gzip, [Text.Encoding]::UTF8)
-        try { return $reader.ReadToEnd() }
-        finally { $reader.Dispose() }
-    } finally { $stream.Dispose() }
-}
-
-$EmbeddedTemplates = @{
-'Ex3_Task1_Infrastructure.json' = (Expand-LabTemplate 'H4sIAAAAAAAC/+1d+W/jNhb+PX9FoF3ACTC2dfnq/pQ0nTbYOdw42wU6CAJaoh01ulaHZ9LA//s+Spati5Jsy/ERzhSZxqKoR/Id3/tIP72enZ9z/3SVJ2wg7qdz7snzbPendjv8pGUgE02xgU2vhf72HdxSLGNxzW2LvDBo8nKTF9oqtnXrhbS7x4atIw+3/nIt8x/cB9K/YpkeXPoDO65mmeQxQosnf8PLBvaQijzy/Ff4HT5Rsas4mu0tWn91tKlmIv1cMycOcj3HVzwQ5tywVF/H7r/OkefBYz2sQgsQBcMP09Nfzscv594TPregJ0P7Gy671sRrTpCmk9sd3zSx0+LgmfNAEBs5CIQBMVei6JaCFnKEn8Bn3ouNiVwgiWZOg0EsxJ4gX/f+QLofXFdACgd+cbmgxTxsyHlo6uZ1Z43/wopH7e51nugFqYZmaiAC8ixniFz3u+WouVJiBUa7kDXsYjli+NzyHQUTeb4F1zK3f9YUxyLz1rqLGseW212Ji2wttsIiL3ZC5Vi1MGF2ybWZib3PwdqtrtmOZWPH03B8auBz/MMGIUmvv8xgIoK1+BpoRrIhNHUVKxRZI+vKLS/NP6y6A5UJmtyaihPoNdK52OUcDVhcITJ/CeWPf06uRMv9bWI5BvIuGqRt85WfNz6c+6b2Px+Pgsm/iGb7V8fy7YvLlqZeXj5wsd5ikuarXuaRK4EvGlH7RlGnKeUr7JC0TXeWO6vewujTk7Zjx7J8TrGDWS1+2tEsrzxOMagMsaTMtZjejjUF24kuw8lbPZZvyXJLaAm82BtkG0bT9Btyn0jrvtDl+b7UkyR50B3w0qAjcYl75tRlpCpqkarSXdfyetqFba/TKcmL9HoT+dLPjzovkSHXDOi+mPb813nF9ZohR0NjHecsF1JV4uGGDp5oPwLd5UPlbQvdlADcdzxOtQNFb4tyuh2y7VQ7MbcdsYZUQylsSB1JNmREf6iTuQohX7AHYeq5PdMcz0f64lc3O895waQTDyYZ40x4rsgEiPfK3BHTP7oDzdxFCVDpZRzZSMG5LdJLnTODy4bflvpy0Ujc1EgbV/jnIfPZ/ENWRNcfw7zQHvuaL0o0v6B6zbAD7kN+y5IZoql7fKxL/aaMM2liBWMtHQ5YyO6HszTDnQ+HGPLux7NyF3kmEnOSOp6iCKN9ozQ7pwqRGJk9/ajjHzfLLqmPrT7IyBywM4OIvgiVMS91cw1Rb2i53tTBo98/tScggAYzMIIbSMQt6HZ+tu6Vh+p6cVZ27zwLOcI4V4rrkr0/JDy+5Xu271GAxq26SRifZeL3rXrRKI0TAD7yvXwZ5AC/MgqMY1txIzgESKi9cKftlWcE+WoaT9mAwLPsbkAr3/h2AyKuZXcjirnHHQ4pP086i/+7GPZbZNm2P9Y15dY+tkw7krtqtg3tNZul2yzdLku3BZEfiJ2+NJB7six2enxP4OvItwsVdpucWx837Q1Vm2XdteWqi+UdXoXIGNefrcYVqMaM1X3281PVSIiRh0wVAWuckytCfCDGyd3hKfQPvrsUapYlyMt51COpP2PvyVIXkniawu0XzkbLsFtIm1GnFMBIKkOZVW/re/IjUVohDxnm6ONjAzj6uCq0IZkFBIEDxTYF9pKwhgl2sKngi3y7yFUEGG4jiV8bl/DRSg8al62FHbdWYrSCpzI0dhRobMDzoix2e9KgL3UBmPG9WsAYxbi2hGGnA8HWCnKnB+Z0C6nXSEfgj5wqQE5KhZ1iIBcq3+lCuIkT+Br1dvizZU60qe8UsrwlnPVH0tsvprodYZ3CU4W0L6epVKxzq1JJehp5W5GkzVmaMVKeYR4XMg8tS99wDq/DjkgP3MbSwESP8YYCkNA2JPdvuYqO5VkKDAK6/A26pG8u2JbjQas+T23hYPDSrjdEXhBo2vS+NNBmB8L/rTnCEEZVIqLQoTY3fWOMna+TYTRfUs1qsfJO4H3vfH2bRbmLY+KN1oRi7ZUsLE7C0rxGO3IApZRswmun8qXI514WWC91RbN2uPbocky5HbPK/Y0tblL3SoFFReszLLWscTSusobYJDuGH2FsHmjy7RBaT5DuYrolqjq+1wwMoP7W/KyZvhfoplw0ujFee7FCT9deOq39rQ7p+IYc39PGfoQLbkJkxB3vjmB8unZLo1RamBIsPF6ZaZ2bTnvxCOmxLZ2uXefQ9uTKSyin2IlZcvbX/WomwiZNlSozD0tpHt6a3DI15b94LBwPtwUCVyW3oGkTCC7hUOktl7YbXQe5tToCTSe2YocWSpmtYldWh8QRz0qXNyED4+KOiIvrDXo9vsv3+wLcIAIf1+nUwcXRnME2ZNxWXuMwKTm3+rGXWuHM6bF7ZvjvLUnrJ0jBFRm+QXWGb6HSb3iuWLPr4No0Wwl6EbajBBYnTNfl2CINb2yWx2oz8FX5G8c3LzBC2DkuzLMivHldmXWrcD41Z5gJAywY60keBgXL2G3GlzHuVPawNM09Zw8roBS39rW7iSPEfScg4iknICJLQFgCwhKQvSYgXbnbk/muJEj9nizwsiwMDjwBEVkCwhIQloCwBIQlICwBYQnILhOQK9s+3R0Q+K4d2wGhAfrYtxwZnD+qb1rJg34XIL3c7XbETrebLChxaHB+Yxs8bTjPEDhD4EeEwBlyPXrkekiQUzxlyMk4bwY5TwtyymKvKw2Ebl+UeXHQG/R73QOHnIxBZpCTQU4GORnkZJBzZhzXMe+ZsU4Jg5nRPFiOM98Q6kCbi7P7dKgZPLoUZAZ1vnPqexcOPbc4+E4LVSVRvPv0b/xS0B2DwbtjXnsSL/X5vizBv4Is9Ws5SVGshYXV5mlYj+JDtkHW4GxmxilRuVXD9D5Adeopf1tm4WIix0EvpQ/JgkxOSMOsh+LKmERT/wO1Xc2atCtwJr4bj6G5KVC+z9vggdxbJC8/WwYEIRxVu/yMlCfNrFjbTBDWqMRt1Jy5ED3L4mLy6UaJzhMUz/iOHAxfB55oOrVy98wYwQtE4hU3Hm9E5D7Oelyl0tsLOFzylGwmSTsd8npWPQ8KnMhaFagrlhOH2AYRt2RMmgFt7iIQRU3iwjoe7lNYsuRnZFogdgKOJlpbk0nYkud5oQmRvumPfdPzm25Qo7n5FzKMF9rNYVUVThQfARHontuEUC3SGsdCMQm0bu7Xs3PzSM5y4Rvez/QhA+iGHr8u33MDX6I1bsl00WQJIY5a2OtqYa4UxYI5uV/YfqS4o9HN46e70TbJa542WG6JIiihx3G+rOcmcp16DtqNrlL70KGqwI9qlSw4VXNJAYMI8Fz58BohEyoURrcVFDMggaC8Xg2EitCJaZMLKFcC3V0kqIsgmASpA/kRKsoViaAXqV8XOhSE8IvGM365ATSayrVjvdlQFAWuRoCp/WQZuE2+2d2CRm0E47Qc8qakR+gpnbKnpvmSXvigclX7DK7MWVhK+pL/pLeugG7shkWhROd0LWrjICiUZaK7Z/5EPGH+RHyv/InI+BPGn7whfyLw8BYuUeAlKA8O/9PrCv13xp+IjD85Kf5EZPwJ408Yf8L4E8afMP6E8SeMP2H8ySHyJ+J++ZPj+pJddf6EvMvu3Z4/IYvK+BPGn7whfwJFBGVR6vC9Phw+6YvwWo93xJ+As2HnT/bEnzDe4rR5C0ZEMCKCERGMiGBEBCMiGBGxKyIizBj3TESIJ0xEiO+ViGAHORgR8ZavNOj0hO6gI/TIOw3kzqAvdN4ZD8HOcTAegvEQjIdgPATjIRgPwXgIxkMwHuKYeIi9HohYlH+5Md0/4WRkWCDkiFiJ/dZQm7HyaUdXPq3T70k9QegNhEFf7ndg376OdHl2lFXBZsjRSLTOGVDSL3xJegsABM8t23K9KRhViyzvGLl4pVXcbuuQJWWrkkqBXneLU6nlVFw0skMvzaqmujXOgdzrhNAPNc1GFPkWlz/BUtUzQ/HXI78KhHApmTMCmqbNiY5/NIl5NInWbDyTZdmog6ch+0liUvBSdpWONrnkHFETsCyumtELrW0JqHKMOg9jlGENilaUr1Z2SA/bYrzkY3Zbhm3r8b7Lcmz29NgQX8hSVN2LivzPgW5FqVjHU1BMdbTvasAkhlcuB1xq13VInZeY0OVPi1Rtky3aL/tkTY9hx43lAfXlAdKgJ4miBMokSHx3INe4a1ZNqzbaQivwfttso9nTjb3kYW6jlTvWNTOzDaBM+eZZQlHqmC57GvRbokPPfl0KFNvRgQ0dqfS59xp26njur4HH0Ie+A0koPqFK2zfXYJLDMLEe/f6pTcxSAww7Cuy+Sh5HkjjyH6C1mYa/V9w8XPmVGjcQw82inFwtX4RQLfM3ITgv1JzMLUSjcrKx+dr5Y65BFgT8oAlF2MIoUNZnHEnkZa6xONvh6PultJw25RnvlqAsI1rGh1L3h5LO8coxCnpNO9L8VDpnXE/a9OlqhjQdjTVd815oA4wyC9L9HVZ9cFCmx62zLUvreXGZbGf/eg2NOoJ4aLsq9vQjeIzdZNolvim9cxbzKHtOtfMziRN4ZeRCIY8uhQ/FrprDu96BZu8snTugr2NKYheKWEmy3BE6PC93O91aEroiXd0m49pMqQ8z2ToqhD0KF7SdPOlTEVnL1Y/jxRTnLSH1MiP7M3tOKYtFnjVTDe8KhP1DXH/fxfVt23I89zfilO4dNJloyldTJ/DMc/y8vRcE75n5fg3bPMPgPA+sAASlgr2aoP0IThtiFc7ilDYneNrwjXvdjS3f/aeR8Chy+wVnC5XYDTqj6HUalcW1ck1Ydhb9DIYbH+b8bP5/5fJyel/BAAA=')
-}
 
 $ErrorActionPreference = 'Stop'
 $Failures = [Collections.Generic.List[object]]::new()
@@ -77,24 +59,20 @@ function Invoke-WithRetry {
 
 function Get-LabTemplate {
     param([string] $Name)
-    $localPath = $null
-    if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
-        $localPath = Join-Path $PSScriptRoot $Name
-    }
-    if ($localPath -and (Test-Path -LiteralPath $localPath)) {
-        return Get-Content -LiteralPath $localPath -Raw | ConvertFrom-Json -AsHashtable
-    }
-    if ($UseLocalFiles) {
-        throw "Required template '$Name' is missing. Run the .ps1 from its template folder, or omit -UseLocalFiles and supply a published -TemplateBaseUri."
-    }
     if ([string]::IsNullOrWhiteSpace($TemplateBaseUri)) {
-        return $EmbeddedTemplates[$Name] | ConvertFrom-Json -AsHashtable
+        throw "TemplateBaseUri is required. Supply the GitHub folder containing '$Name'."
     }
     Invoke-WithRetry {
-        Invoke-RestMethod -Uri "$($TemplateBaseUri.TrimEnd('/'))/$Name" -ErrorAction Stop |
+        $template = Invoke-RestMethod -Uri "$($TemplateBaseUri.TrimEnd('/'))/$Name" -ErrorAction Stop |
             ConvertTo-Json -Depth 100 | ConvertFrom-Json -AsHashtable
+        if ($template -isnot [Collections.IDictionary] -or -not $template.Contains('$schema') -or
+                $template.parameters -isnot [Collections.IDictionary] -or $template.resources -isnot [array]) {
+            throw "Downloaded '$Name' is not an ARM template."
+        }
+        return $template
     }
 }
+
 
 function Get-LabResourceGroup {
     param([string] $Name)
