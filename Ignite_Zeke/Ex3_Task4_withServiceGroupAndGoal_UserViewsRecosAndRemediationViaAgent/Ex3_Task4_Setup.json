@@ -31,20 +31,28 @@
       "metadata": {
         "description": "Optional parent Service Group resource ID. Leave empty for a root-level Service Group (defaults to the tenant-root Service Group)."
       }
+    },
+    "sharedResourceGroupName": {
+      "type": "string",
+      "defaultValue": "CaldovaPayApp_Ex3_Task3",
+      "metadata": {
+        "description": "Resource group containing the shared Ex3_Task3 infrastructure; not the deployment resource group."
+      }
     }
   },
   "variables": {
     "serviceGroupResourceId": "[format('/providers/Microsoft.Management/serviceGroups/{0}', parameters('serviceGroupName'))]",
     "serviceGroupRelationshipId": "[format('default{0}', parameters('serviceGroupName'))]",
-    "vnetNameValue": "[format('vnet-{0}', uniqueString(resourceGroup().id))]",
-    "publicIpNameValue": "[format('pubip-{0}', uniqueString(resourceGroup().id))]",
-    "lbNameValue": "[format('web-lb-{0}', uniqueString(resourceGroup().id))]",
-    "webVm1NameValue": "[format('web-vm-1-{0}', uniqueString(resourceGroup().id))]",
-    "webVm2NameValue": "[format('web-vm-2-{0}', uniqueString(resourceGroup().id))]",
-    "appVm1NameValue": "[format('app-vm-1-{0}', uniqueString(resourceGroup().id))]",
-    "appVm2NameValue": "[format('app-vm-2-{0}', uniqueString(resourceGroup().id))]",
-    "pgServerNameValue": "[format('pg-flex-{0}', uniqueString(resourceGroup().id))]",
-    "storageNameValue": "[format('st{0}', uniqueString(resourceGroup().id))]"
+    "vnetNameValue": "[format('vnet-{0}', uniqueString(variables('sharedResourceGroupId')))]",
+    "publicIpNameValue": "[format('pubip-{0}', uniqueString(variables('sharedResourceGroupId')))]",
+    "lbNameValue": "[format('web-lb-{0}', uniqueString(variables('sharedResourceGroupId')))]",
+    "webVm1NameValue": "[format('web-vm-1-{0}', uniqueString(variables('sharedResourceGroupId')))]",
+    "webVm2NameValue": "[format('web-vm-2-{0}', uniqueString(variables('sharedResourceGroupId')))]",
+    "appVm1NameValue": "[format('app-vm-1-{0}', uniqueString(variables('sharedResourceGroupId')))]",
+    "appVm2NameValue": "[format('app-vm-2-{0}', uniqueString(variables('sharedResourceGroupId')))]",
+    "pgServerNameValue": "[format('pg-flex-{0}', uniqueString(variables('sharedResourceGroupId')))]",
+    "storageNameValue": "[format('st{0}', uniqueString(variables('sharedResourceGroupId')))]",
+    "sharedResourceGroupId": "[format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('sharedResourceGroupName'))]"
   },
   "resources": [
     {
@@ -62,39 +70,39 @@
     },
     "vnetId": {
       "type": "string",
-      "value": "[resourceId('Microsoft.Network/virtualNetworks', format('vnet-{0}', uniqueString(resourceGroup().id)))]"
+      "value": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Network/virtualNetworks', format('vnet-{0}', uniqueString(variables('sharedResourceGroupId'))))]"
     },
     "publicIpId": {
       "type": "string",
-      "value": "[resourceId('Microsoft.Network/publicIPAddresses', format('pubip-{0}', uniqueString(resourceGroup().id)))]"
+      "value": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Network/publicIPAddresses', format('pubip-{0}', uniqueString(variables('sharedResourceGroupId'))))]"
     },
     "loadBalancerId": {
       "type": "string",
-      "value": "[resourceId('Microsoft.Network/loadBalancers', format('web-lb-{0}', uniqueString(resourceGroup().id)))]"
+      "value": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Network/loadBalancers', format('web-lb-{0}', uniqueString(variables('sharedResourceGroupId'))))]"
     },
     "webVm1Id": {
       "type": "string",
-      "value": "[resourceId('Microsoft.Compute/virtualMachines', format('web-vm-1-{0}', uniqueString(resourceGroup().id)))]"
+      "value": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Compute/virtualMachines', format('web-vm-1-{0}', uniqueString(variables('sharedResourceGroupId'))))]"
     },
     "webVm2Id": {
       "type": "string",
-      "value": "[resourceId('Microsoft.Compute/virtualMachines', format('web-vm-2-{0}', uniqueString(resourceGroup().id)))]"
+      "value": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Compute/virtualMachines', format('web-vm-2-{0}', uniqueString(variables('sharedResourceGroupId'))))]"
     },
     "appVm1Id": {
       "type": "string",
-      "value": "[resourceId('Microsoft.Compute/virtualMachines', format('app-vm-1-{0}', uniqueString(resourceGroup().id)))]"
+      "value": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Compute/virtualMachines', format('app-vm-1-{0}', uniqueString(variables('sharedResourceGroupId'))))]"
     },
     "appVm2Id": {
       "type": "string",
-      "value": "[resourceId('Microsoft.Compute/virtualMachines', format('app-vm-2-{0}', uniqueString(resourceGroup().id)))]"
+      "value": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Compute/virtualMachines', format('app-vm-2-{0}', uniqueString(variables('sharedResourceGroupId'))))]"
     },
     "postgresId": {
       "type": "string",
-      "value": "[resourceId('Microsoft.DBforPostgreSQL/flexibleServers', format('pg-flex-{0}', uniqueString(resourceGroup().id)))]"
+      "value": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.DBforPostgreSQL/flexibleServers', format('pg-flex-{0}', uniqueString(variables('sharedResourceGroupId'))))]"
     },
     "storageId": {
       "type": "string",
-      "value": "[resourceId('Microsoft.Storage/storageAccounts', format('st{0}', uniqueString(resourceGroup().id)))]"
+      "value": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Storage/storageAccounts', format('st{0}', uniqueString(variables('sharedResourceGroupId'))))]"
     }
   }
 }

@@ -1,16 +1,19 @@
 #Requires -Version 7.2
 <#
 .SYNOPSIS
-    Ex3_Task3: optimized Zeke deployment using the shared Ex3_Task3 resource group.
+    Ex3_Task3: separate exercise deployment RG with shared Ex3_Task3 infrastructure.
 .DESCRIPTION
-    Run Ex3_Task3 first, then Ex3_Task4 and Ex4_Task1. Each exercise creates a separate
-    Service Group with the same nine members. Only Ex3_Task3 deploys infrastructure:
+    Each exercise creates its own deployment RG and a separate Service Group.
+    Only Ex3_Task3 deploys the shared infrastructure in CaldovaPayApp_Ex3_Task3:
     PostgreSQL Standard_B1ms/Burstable with HA disabled, and Standard_LRS storage.
     Initial Ex3_Task3 provisioning retains RG retries and rotated regional fallback.
     Only an RG created and tagged by the current failed provisioning run can be recreated
-    in another region. An existing shared RG is never deleted. Later exercises retry
-    configuration in place. Existing non-optimized copies are unchanged.
-    Later exercises also run against a partially deployed shared RG. They pass all nine
+    in another region. An existing shared RG is never deleted. Later exercises create
+    their own RGs with retries and retry configuration in place, never deleting the
+    shared RG. Existing non-optimized copies are unchanged.
+    Ex3_Task4 and Ex4_Task1 use SharedResourceGroupName to compute the nine member IDs,
+    independently of their own ResourceGroupName. They also attempt step2 when the
+    shared RG is missing or partial. They pass all nine
     expected IDs to step2 without checking member existence or requiring a success marker.
     Step2 makes three attempts and retains partial success. Goals and usage plans do not
     wait for all memberships; enrollment -> recovery plan -> drill ordering is retained.
@@ -19,10 +22,11 @@
     Remaining deployment/configuration errors are reported after the readiness attempt.
     Local templates are preferred; otherwise the fresh templates are loaded from Ignite_Zeke.
 
-    Requires a Skillable scoped deployment app with rights on the shared RG and Service
-    Groups, and Graph rights for the existing temporary-secret/user-lookup workflow.
+    Requires a Skillable scoped deployment app with rights on the exercise RG, shared RG
+    and Service Groups, and Graph rights for the temporary-secret/user-lookup workflow.
     The lab user receives Service Group Administrator. Ex4 also grants its AHM identity
-    Service Group Reader; the setup template grants that identity Reader on the shared RG.
+    Service Group Reader and Reader on the shared RG. A shared-RG Reader failure is
+    reported after step2 and RO/Drill readiness have still been attempted.
 
     Ex3_Task3 accepts AdministratorPassword as a SecureString for the PostgreSQL server
     and lab VMs. In Skillable it defaults to the User1 password placeholder; outside the
@@ -41,6 +45,7 @@ param(
     [string] $ScopedAppId = '@lab.Variable(SGDeployAppId)',
     [string] $ScopedAppObjectId = '@lab.Variable(SGDeployAppObjectId)',
     [string] $ResourceGroupName = 'CaldovaPayApp_Ex3_Task3',
+    [string] $SharedResourceGroupName = 'CaldovaPayApp_Ex3_Task3',
     [string] $Location = 'southcentralus',
     [string[]] $Regions = @('southcentralus','centralus','eastus2'),
     [string] $TemplateBaseUri = 'https://raw.githubusercontent.com/viveksheelsingh/TestScripts/main/Ignite_Zeke/Ex3_Task3_withServiceGroup_UserCreatesGoals_ZonalAndRegional',
@@ -210,7 +215,7 @@ function Invoke-SharedSetupWithRegionFallback {
     if ($PreferredLocationWasSpecified) {
         $orderedRegions = @($Location) + @($orderedRegions | Where-Object { $_ -ne $Location })
     }
-    if ($sharedGroup) { $orderedRegions = @($sharedGroup.Location) }
+    if ($deploymentGroup) { $orderedRegions = @($deploymentGroup.Location) }
     $provisioningId = [guid]::NewGuid().ToString()
     $createdThisRun = $false
     foreach ($region in $orderedRegions) {
@@ -230,7 +235,7 @@ function Invoke-SharedSetupWithRegionFallback {
             }
             $createdThisRun = $false
         }
-        if (-not $sharedGroup) {
+        if (-not $deploymentGroup) {
             for ($attempt = 1; $attempt -le 3; $attempt++) {
                 try {
                     New-AzResourceGroup -Name $ResourceGroupName -Location $region `
@@ -253,29 +258,31 @@ function Invoke-SharedSetupWithRegionFallback {
             Write-Warning "Shared setup in $region failed: $lastFailure"
         }
     }
-    if ($sharedGroup) {
+    if ($deploymentGroup) {
         throw "Shared setup failed in existing RG '$ResourceGroupName'; it was not deleted or moved. $lastFailure"
     }
     throw "Shared setup failed across $($orderedRegions -join ', '): $lastFailure"
 }
 
-function Grant-ServiceGroupRole {
-    param([string] $PrincipalId, [string] $RoleId, [ValidateSet('User','ServicePrincipal')][string] $PrincipalType)
+function Grant-ScopedRole {
+    param([string] $PrincipalId, [string] $RoleId, [ValidateSet('User','ServicePrincipal')][string] $PrincipalType,
+        [string] $Scope = $ServiceGroupScope)
     if ($PrincipalId -notmatch $GuidPattern -or $RoleId -notmatch $GuidPattern) {
-        throw 'A valid principal and role ID are required for Service Group access.'
+        throw 'A valid principal and role ID are required for role assignment.'
     }
     $bytes = [Security.Cryptography.SHA256]::HashData(
-        [Text.Encoding]::UTF8.GetBytes("$ServiceGroupScope|$PrincipalId|$RoleId".ToLowerInvariant()))
+        [Text.Encoding]::UTF8.GetBytes("$Scope|$PrincipalId|$RoleId".ToLowerInvariant()))
     $assignment = [guid]::new([byte[]]$bytes[0..15]).ToString()
+    $roleScope = if ($Scope -like '/subscriptions/*') { "/subscriptions/$SubscriptionId" } else { '' }
     $body = @{ properties = @{
-        roleDefinitionId = "/providers/Microsoft.Authorization/roleDefinitions/$RoleId"
+        roleDefinitionId = "$roleScope/providers/Microsoft.Authorization/roleDefinitions/$RoleId"
         principalId = $PrincipalId
         principalType = $PrincipalType
     } } | ConvertTo-Json -Depth 3
     for ($attempt = 1; $attempt -le 6; $attempt++) {
         try {
             $response = Invoke-AzRestMethod -Method PUT -Payload $body -ErrorAction Stop `
-                -Path "$ServiceGroupScope/providers/Microsoft.Authorization/roleAssignments/${assignment}?api-version=2022-04-01"
+                -Path "$Scope/providers/Microsoft.Authorization/roleAssignments/${assignment}?api-version=2022-04-01"
             if ($response.StatusCode -in 200,201 -or $response.Content -match 'RoleAssignmentExists') { return }
             throw "Role assignment returned HTTP $($response.StatusCode): $($response.Content)"
         } catch {
@@ -291,8 +298,13 @@ foreach ($value in @($TenantId, $SubscriptionId, $ScopedAppId, $ScopedAppObjectI
         throw "Resolve the Skillable tenant/subscription/scoped-app placeholders or supply explicit parameters. Check 'Create Scoped Deploy SP'."
     }
 }
-if ($LabInstanceId -notmatch '^[a-zA-Z0-9_-]+$' -or [string]::IsNullOrWhiteSpace($ResourceGroupName)) {
-    throw 'Supply a valid lab instance ID and shared resource group name.'
+if ($OwnsInfrastructure) { $SharedResourceGroupName = $ResourceGroupName }
+if ($LabInstanceId -notmatch '^[a-zA-Z0-9_-]+$' -or
+        [string]::IsNullOrWhiteSpace($ResourceGroupName) -or [string]::IsNullOrWhiteSpace($SharedResourceGroupName)) {
+    throw 'Supply a valid lab instance ID, deployment RG name and shared resource RG name.'
+}
+if (-not $OwnsInfrastructure -and $ResourceGroupName -eq $SharedResourceGroupName) {
+    throw 'Use a separate deployment RG; only Ex3_Task3 may deploy into the shared infrastructure RG.'
 }
 if ($OwnsInfrastructure -and $LabInstanceId -notmatch '^[0-9]+$') {
     throw 'Ex3_Task3 regional rotation requires a numeric Skillable lab instance ID.'
@@ -306,14 +318,12 @@ if ($HasHealthModel) {
 }
 Set-AzContext -SubscriptionId $SubscriptionId -ErrorAction Stop | Out-Null
 try {
-    $sharedGroup = Get-AzResourceGroup -Name $ResourceGroupName -ErrorAction Stop
+    $deploymentGroup = Get-AzResourceGroup -Name $ResourceGroupName -ErrorAction Stop
 } catch {
     $details = "$($_.FullyQualifiedErrorId) $($_.ErrorDetails.Message) $($_.Exception.Message)"
-    if ($_.Exception.Response.StatusCode -ne 404 -and $details -notmatch 'ResourceGroupNotFound') { throw }
-    $sharedGroup = $null
-}
-if (-not $OwnsInfrastructure -and -not $sharedGroup) {
-    throw "Shared RG '$ResourceGroupName' is missing. Run the optimized Ex3_Task3 script first."
+    if ($_.Exception.Response.StatusCode -ne 404 -and
+            $details -notmatch 'ResourceGroupNotFound|Provided resource group does not exist\.') { throw }
+    $deploymentGroup = $null
 }
 
 $userId = (Invoke-RestMethod -Headers (Get-GraphHeader) `
@@ -336,15 +346,28 @@ try {
             $AdministratorPassword = ConvertTo-SecureString $labPassword -AsPlainText -Force
             $labPassword = $null
         }
-        if ($sharedGroup) {
+        if ($deploymentGroup) {
             Update-AzTag -ResourceId "/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroupName" `
                 -Operation Merge -Tag @{ IgniteZekeInfrastructureState = 'Provisioning' } -ErrorAction Stop | Out-Null
         }
     } else {
-        $Location = $sharedGroup.Location
+        if ($deploymentGroup) {
+            $Location = $deploymentGroup.Location
+        } else {
+            for ($attempt = 1; $attempt -le 3; $attempt++) {
+                try {
+                    New-AzResourceGroup -Name $ResourceGroupName -Location $Location -ErrorAction Stop | Out-Null
+                    break
+                } catch {
+                    if ($attempt -ge 3) { throw }
+                    Start-Sleep -Seconds 30
+                }
+            }
+        }
     }
     $setupParameters = @{ serviceGroupName = $ServiceGroupName; location = $Location }
     if ($OwnsInfrastructure) { $setupParameters.administratorPassword = $AdministratorPassword }
+    else { $setupParameters.sharedResourceGroupName = $SharedResourceGroupName }
     if ($HasHealthModel) { $setupParameters.healthModelName = $HealthModelName }
     Start-Sleep -Seconds 60
     $null = Get-AzAccessToken -ResourceUrl 'https://management.azure.com' -ErrorAction Stop
@@ -367,7 +390,7 @@ try {
         storageId = 'Microsoft.Storage/storageAccounts'
     }
     $step2Parameters = @{ serviceGroupName = $ServiceGroupName }
-    $expectedScope = "/subscriptions/$SubscriptionId/resourceGroups/$ResourceGroupName/providers/"
+    $expectedScope = "/subscriptions/$SubscriptionId/resourceGroups/$SharedResourceGroupName/providers/"
     foreach ($name in $memberTypes.Keys) {
         $id = [string]$setup.Outputs.$name.Value
         $prefix = "$expectedScope$($memberTypes[$name])/"
@@ -383,9 +406,18 @@ try {
     }
     Start-Sleep -Seconds 120
     $null = Get-AzAccessToken -ResourceUrl 'https://management.azure.com' -ErrorAction Stop
-    Grant-ServiceGroupRole -PrincipalId $userId -RoleId $sgAdminRole -PrincipalType User
+    Grant-ScopedRole -PrincipalId $userId -RoleId $sgAdminRole -PrincipalType User
+    $sourceReaderError = $null
     if ($HasHealthModel) {
-        Grant-ServiceGroupRole -PrincipalId $setup.Outputs.healthModelPrincipalId.Value -RoleId $sgReaderRole -PrincipalType ServicePrincipal
+        Grant-ScopedRole -PrincipalId $setup.Outputs.healthModelPrincipalId.Value -RoleId $sgReaderRole -PrincipalType ServicePrincipal
+        try {
+            Grant-ScopedRole -PrincipalId $setup.Outputs.healthModelPrincipalId.Value `
+                -RoleId 'acdd72a7-3385-48ef-bd42-f606fba81ae7' -PrincipalType ServicePrincipal `
+                -Scope "/subscriptions/$SubscriptionId/resourceGroups/$SharedResourceGroupName"
+        } catch {
+            $sourceReaderError = "AHM Reader assignment on shared RG failed: $($_.Exception.Message)"
+            Write-Warning "$sourceReaderError. Continuing with step2 and RO/Drill configuration."
+        }
         $step2Parameters.healthModelName = $HealthModelName
         $step2Parameters.zonalRecoveryPlanName = $RecoveryPlanName
         $step2Parameters.zonalDrillName = $DrillName
@@ -416,17 +448,27 @@ try {
             }
             & (Join-Path $staging 'post-deployment\Initialize-ZonalROAndDrill.ps1') @readinessParameters
         } catch {
-            if ($step2Error) {
-                throw "Step2 failed after all retries: $step2Error. RO/Drill setup was attempted and also failed: $($_.Exception.Message)"
+            if ($step2Error -or $sourceReaderError) {
+                $priorFailures = @(
+                    if ($sourceReaderError) { $sourceReaderError }
+                    if ($step2Error) { "Step2 failed after all retries: $step2Error" }
+                ) -join '. '
+                throw "$priorFailures. RO/Drill setup was attempted and also failed: $($_.Exception.Message)"
             }
             throw
         } finally {
             if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }
         }
     }
-    if ($step2Error) { throw "Step2 failed after all retries: $step2Error. RO/Drill setup was still run and completed; partial deployment resources were retained." }
+    if ($step2Error -or $sourceReaderError) {
+        $priorFailures = @(
+            if ($sourceReaderError) { $sourceReaderError }
+            if ($step2Error) { "Step2 failed after all retries: $step2Error" }
+        ) -join '. '
+        throw "$priorFailures. RO/Drill setup was still run and completed; partial deployment resources were retained."
+    }
     Write-Host "$TaskName complete. Service Group: $ServiceGroupScope" -ForegroundColor Green
-    Write-Host "Shared resources are in $ResourceGroupName. Existing shared resource groups are never deleted."
+    Write-Host "Deployment RG: $ResourceGroupName. Shared resources: $SharedResourceGroupName. Existing shared resource groups are never deleted."
     if (-not $HasGoal) { Write-Host 'Next: create the zonal and regional goals manually for this Service Group.' }
 } finally {
     Disconnect-ScopedSP $session
