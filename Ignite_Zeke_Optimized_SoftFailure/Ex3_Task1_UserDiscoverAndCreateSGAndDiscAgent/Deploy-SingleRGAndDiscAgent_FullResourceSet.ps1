@@ -9,9 +9,11 @@
     but neither deploy nor delete shared infrastructure. SharedResourceGroupName selects
     the source RG; for Ex3_Task3 it follows ResourceGroupName.
 
-    Every infrastructure module is attempted separately in dependency order, preserving
-    the copied resource definitions, SKUs and native prerequisites. Each membership
-    is a separate attempt in a nested deployment scoped to the shared source RG.
+    Infrastructure is submitted as one full ARM deployment per attempt. ARM handles
+    parallelism using the original dependencies, resource definitions and SKUs.
+    A failed prerequisite may prevent its dependent resources from deploying;
+    infrastructure failure does not block subsequent discovery/SG steps. Each
+    membership is a separate attempt scoped to the shared source RG.
     Missing resources or a missing source RG do not gate goals or later configuration.
     Ex3_Task3 leaves goal creation to the learner. Ex3_Task4 attempts its zonal goal.
     Only Ex4_Task1 creates AHM/usage plan/enrollment/RO/Drill and attempts readiness.
@@ -1660,23 +1662,16 @@ function Invoke-Infrastructure {
         $Parameters.location = $region
         $Deployment.Location = $region
         $regionFailures.Clear()
-        foreach ($module in $Template.resources) {
-            # Cross-module ordering is now handled here; output references still enforce prerequisites.
-            $unit = $Template.Clone()
-            $resource = $module.Clone()
-            $resource.Remove('dependsOn')
-            $unit.resources = @($resource)
-            $arguments = @{ Stage = "Infrastructure-$($module.name)"; Template = $unit; Parameters = $Parameters }
-            if ($TaskName -eq 'Ex3_Task1') { $arguments.MaxAttempts = 3; $arguments.DelaySeconds = 180 }
-            else { $arguments.MaxAttempts = 2; $arguments.DelaySeconds = 120; $arguments.StopOnAllocationError = $true }
-            try { $null = Invoke-LabDeployment @arguments }
-            catch {
-                $regionFailures.Add([pscustomobject]@{
-                    Stage = "Infrastructure/$($module.name)"
-                    Message = $_.Exception.Message
-                })
-                Write-Warning "$($module.name) in '$region' failed: $($_.Exception.Message). Continuing with the next module."
-            }
+        $arguments = @{ Stage = 'Infrastructure'; Template = $Template; Parameters = $Parameters }
+        if ($TaskName -eq 'Ex3_Task1') { $arguments.MaxAttempts = 3; $arguments.DelaySeconds = 180 }
+        else { $arguments.MaxAttempts = 2; $arguments.DelaySeconds = 120; $arguments.StopOnAllocationError = $true }
+        try { $null = Invoke-LabDeployment @arguments }
+        catch {
+            $regionFailures.Add([pscustomobject]@{
+                Stage = "Infrastructure/$region"
+                Message = $_.Exception.Message
+            })
+            Write-Warning "Infrastructure in '$region' failed: $($_.Exception.Message). Remaining stages will still be attempted."
         }
         if (-not $regionFailures.Count) { return }
         if ($region -eq $regionsToTry[-1]) { break }
