@@ -33,8 +33,10 @@
     and lab VMs. In Skillable it defaults to the User1 password placeholder; outside the
     lab supply the parameter explicitly. No password is written to disk or printed.
 
-    Ex4 requires Azure CLI signed in to the workload tenant. It automatically downloads
-    and runs the existing RO/Drill readiness workflow; it does not start a drill.
+    Ex4 uses Az PowerShell for account and token access; Azure CLI is not required.
+    Its readiness helpers are bundled in this one script and staged temporarily at runtime.
+    They run as the scoped deployment app in the selected tenant/subscription.
+    No extra helper downloads or manual script runs are required. It does not start a drill.
     Readiness journals are retained by that workflow if configuration fails.
 #>
 [CmdletBinding()]
@@ -50,7 +52,6 @@ param(
     [string] $Location = 'southcentralus',
     [string[]] $Regions = @('southcentralus','centralus','eastus2'),
     [string] $TemplateBaseUri = 'https://raw.githubusercontent.com/viveksheelsingh/TestScripts/main/Ignite_Zeke/Ex3_Task3_withServiceGroup_UserCreatesGoals_ZonalAndRegional',
-    [string] $PostDeploymentBaseUri = 'https://raw.githubusercontent.com/viveksheelsingh/TestScripts/efdf6f67f85b913d55c5c3ed938b3c8101796287/IgniteTemplates/SGMSGSplitIgniteScripts',
     [securestring] $AdministratorPassword,
     [switch] $UseLocalFiles
 )
@@ -313,14 +314,13 @@ if (-not $OwnsInfrastructure -and $ResourceGroupName -eq $SharedResourceGroupNam
 if ($OwnsInfrastructure -and $LabInstanceId -notmatch '^[0-9]+$') {
     throw 'Ex3_Task3 regional rotation requires a numeric Skillable lab instance ID.'
 }
-if ($HasHealthModel) {
-    $null = Get-Command az -ErrorAction Stop
-    $accountJson = & az account show --only-show-errors --output json
-    if ($LASTEXITCODE -ne 0) { throw 'Sign in with Azure CLI before configuring Ex4 readiness.' }
-    $account = ($accountJson -join "`n") | ConvertFrom-Json -ErrorAction Stop
-    if ($account.tenantId -ne $TenantId) { throw 'Azure CLI must be signed in to the workload tenant.' }
-}
 Set-AzContext -SubscriptionId $SubscriptionId -ErrorAction Stop | Out-Null
+if ($HasHealthModel) {
+    $account = Get-AzContext -ErrorAction Stop
+    if (!$account.Account -or $account.Tenant.Id -ne $TenantId -or $account.Subscription.Id -ne $SubscriptionId) {
+        throw 'Az PowerShell must be signed in to the workload tenant and subscription.'
+    }
+}
 try {
     $deploymentGroup = Get-AzResourceGroup -Name $ResourceGroupName -ErrorAction Stop
 } catch {
@@ -441,14 +441,14 @@ try {
             RecoveryPlanId = "$ServiceGroupScope/providers/Microsoft.AzureResilienceManagement/recoveryPlans/$RecoveryPlanName"
             DrillId = "$ServiceGroupScope/providers/Microsoft.AzureResilienceManagement/drills/$DrillName"
             RhubArmEndpoint = 'https://management.azure.com'
+            AzureContext = Get-AzContext -ErrorAction Stop
         }
         $staging = Join-Path ([IO.Path]::GetTempPath()) ("IgniteZekeReadiness-" + [guid]::NewGuid().ToString('N'))
         try {
             $null = New-Item -ItemType Directory -Path (Join-Path $staging 'post-deployment')
-            foreach ($relative in @('Common.psm1','post-deployment\Initialize-ZonalROAndDrill.ps1',
-                    'post-deployment\PostDeployment.ps1','post-deployment\NoOp.ps1')) {
-                $uri = $PostDeploymentBaseUri.TrimEnd('/') + '/' + $relative.Replace('\','/')
-                Invoke-WebRequest -Uri $uri -OutFile (Join-Path $staging $relative) -ErrorAction Stop
+            $readinessFiles = @{}
+            foreach ($relative in $readinessFiles.Keys) {
+                [IO.File]::WriteAllText((Join-Path $staging $relative), $readinessFiles[$relative], [Text.UTF8Encoding]::new($false))
             }
             & (Join-Path $staging 'post-deployment\Initialize-ZonalROAndDrill.ps1') @readinessParameters
         } catch {
