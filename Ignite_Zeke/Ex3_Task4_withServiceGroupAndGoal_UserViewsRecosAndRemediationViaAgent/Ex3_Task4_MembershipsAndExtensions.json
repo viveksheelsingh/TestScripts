@@ -1,0 +1,203 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Step2 ordering: all nine Service Group memberships must complete before the resilience goal is assigned."
+  },
+  "parameters": {
+    "deployGoalAssignment": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Create the goal assignment. On retries or redeployment, set false only after verifying the existing goal has provisioningState Succeeded and requireZonalResiliency true. The PowerShell runners check this on every attempt and reuse the existing goal without another PUT."
+      }
+    },
+    "serviceGroupName": {
+      "type": "string",
+      "minLength": 1,
+      "defaultValue": "CaldovaPayApp_Ex3_Task4_SG",
+      "metadata": {
+        "description": "Name of the already-existing Service Group (created by step1) to assign a resilience goal to. Default matches step1's default naming formula so both templates chain together in the same resource group with no parameters."
+      }
+    },
+    "zonalGoalAssignmentName": {
+      "type": "string",
+      "defaultValue": "zonal-ha-assign",
+      "metadata": {
+        "description": "Name of the goal assignment. Only one goalAssignment is allowed per Service Group."
+      }
+    },
+    "goalAssignmentType": {
+      "type": "string",
+      "defaultValue": "Resiliency",
+      "metadata": {
+        "description": "Only 'Resiliency' is accepted."
+      }
+    },
+    "goalApiVersion": {
+      "type": "string",
+      "defaultValue": "2026-08-31-preview",
+      "metadata": {
+        "description": "No separate goalTemplates resource is needed on this apiVersion or later. A standalone goalTemplates resource's write is hard-blocked (DisallowedResourceOperation) on every apiVersion - do not add one. goalTemplateId instead points at the Service Group's own resource ID. Do not set requireZonalResiliency explicitly - both true and false are currently rejected (RHUBUserErrorInvalidRequestParameter); omitting it yields the only supported default (true)."
+      }
+    },
+    "vnetId": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing member ID in the shared Ex3_Task3 resource group. The optimized runner passes the same deterministic ID to every exercise."
+      }
+    },
+    "publicIpId": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing member ID in the shared Ex3_Task3 resource group. The optimized runner passes the same deterministic ID to every exercise."
+      }
+    },
+    "loadBalancerId": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing member ID in the shared Ex3_Task3 resource group. The optimized runner passes the same deterministic ID to every exercise."
+      }
+    },
+    "webVm1Id": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing member ID in the shared Ex3_Task3 resource group. The optimized runner passes the same deterministic ID to every exercise."
+      }
+    },
+    "webVm2Id": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing member ID in the shared Ex3_Task3 resource group. The optimized runner passes the same deterministic ID to every exercise."
+      }
+    },
+    "appVm1Id": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing member ID in the shared Ex3_Task3 resource group. The optimized runner passes the same deterministic ID to every exercise."
+      }
+    },
+    "appVm2Id": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing member ID in the shared Ex3_Task3 resource group. The optimized runner passes the same deterministic ID to every exercise."
+      }
+    },
+    "postgresId": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing member ID in the shared Ex3_Task3 resource group. The optimized runner passes the same deterministic ID to every exercise."
+      }
+    },
+    "storageId": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing member ID in the shared Ex3_Task3 resource group. The optimized runner passes the same deterministic ID to every exercise."
+      }
+    }
+  },
+  "variables": {
+    "serviceGroupId": "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]",
+    "serviceGroupRelationshipId": "[format('default{0}', parameters('serviceGroupName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('vnetId')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('publicIpId')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('loadBalancerId')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('webVm1Id')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('webVm2Id')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('appVm1Id')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('appVm2Id')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('postgresId')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('storageId')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.AzureResilienceManagement/goalAssignments",
+      "condition": "[parameters('deployGoalAssignment')]",
+      "apiVersion": "[parameters('goalApiVersion')]",
+      "name": "[parameters('zonalGoalAssignmentName')]",
+      "scope": "[variables('serviceGroupId')]",
+      "properties": {
+        "goalAssignmentType": "[parameters('goalAssignmentType')]",
+        "goalTemplateId": "[variables('serviceGroupId')]"
+      }
+    }
+  ],
+  "outputs": {
+    "goalAssignmentId": {
+      "type": "string",
+      "value": "[extensionResourceId(variables('serviceGroupId'), 'Microsoft.AzureResilienceManagement/goalAssignments', parameters('zonalGoalAssignmentName'))]"
+    }
+  }
+}

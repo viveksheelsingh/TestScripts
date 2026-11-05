@@ -1,0 +1,159 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Intentional no-op step2 for this scenario. Automation's job ends at step1 (deploy infra + create the Service Group); the zonal and regional resilience goals are created manually by the user afterwards (e.g. via the portal), so there is nothing for ARM to deploy here."
+  },
+  "parameters": {
+    "serviceGroupName": {
+      "type": "string",
+      "minLength": 1,
+      "defaultValue": "CaldovaPayApp_Ex3_Task3_SG",
+      "metadata": {
+        "description": "Name of the already-existing Service Group (created by step1). Default matches step1's default naming formula so both templates chain together in the same resource group with no parameters. Not referenced by any resource below - kept only so this template's parameter contract stays symmetric with the other step2 templates."
+      }
+    },
+    "vnetId": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing member ID in the shared Ex3_Task3 resource group. The optimized runner passes the same deterministic ID to every exercise."
+      }
+    },
+    "publicIpId": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing member ID in the shared Ex3_Task3 resource group. The optimized runner passes the same deterministic ID to every exercise."
+      }
+    },
+    "loadBalancerId": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing member ID in the shared Ex3_Task3 resource group. The optimized runner passes the same deterministic ID to every exercise."
+      }
+    },
+    "webVm1Id": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing member ID in the shared Ex3_Task3 resource group. The optimized runner passes the same deterministic ID to every exercise."
+      }
+    },
+    "webVm2Id": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing member ID in the shared Ex3_Task3 resource group. The optimized runner passes the same deterministic ID to every exercise."
+      }
+    },
+    "appVm1Id": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing member ID in the shared Ex3_Task3 resource group. The optimized runner passes the same deterministic ID to every exercise."
+      }
+    },
+    "appVm2Id": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing member ID in the shared Ex3_Task3 resource group. The optimized runner passes the same deterministic ID to every exercise."
+      }
+    },
+    "postgresId": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing member ID in the shared Ex3_Task3 resource group. The optimized runner passes the same deterministic ID to every exercise."
+      }
+    },
+    "storageId": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing member ID in the shared Ex3_Task3 resource group. The optimized runner passes the same deterministic ID to every exercise."
+      }
+    }
+  },
+  "variables": {
+    "serviceGroupId": "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]",
+    "serviceGroupRelationshipId": "[format('default{0}', parameters('serviceGroupName'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('vnetId')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('publicIpId')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('loadBalancerId')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('webVm1Id')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('webVm2Id')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('appVm1Id')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('appVm2Id')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('postgresId')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Relationships/serviceGroupMember",
+      "apiVersion": "2023-09-01-preview",
+      "name": "[variables('serviceGroupRelationshipId')]",
+      "scope": "[parameters('storageId')]",
+      "properties": {
+        "targetId": "[variables('serviceGroupId')]"
+      }
+    }
+  ],
+  "outputs": {}
+}
