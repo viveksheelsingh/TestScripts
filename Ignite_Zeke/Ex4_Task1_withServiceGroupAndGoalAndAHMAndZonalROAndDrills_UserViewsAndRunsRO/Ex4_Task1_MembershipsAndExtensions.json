@@ -174,84 +174,171 @@
   },
   "resources": [
     {
-      "type": "Microsoft.Relationships/serviceGroupMember",
-      "apiVersion": "2023-09-01-preview",
-      "name": "[variables('serviceGroupRelationshipId')]",
-      "scope": "[parameters('vnetId')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('shared-memberships-{0}', uniqueString(parameters('serviceGroupName')))]",
+      "subscriptionId": "[split(parameters('vnetId'), '/')[2]]",
+      "resourceGroup": "[split(parameters('vnetId'), '/')[4]]",
       "properties": {
-        "targetId": "[variables('serviceGroupId')]"
-      }
-    },
-    {
-      "type": "Microsoft.Relationships/serviceGroupMember",
-      "apiVersion": "2023-09-01-preview",
-      "name": "[variables('serviceGroupRelationshipId')]",
-      "scope": "[parameters('publicIpId')]",
-      "properties": {
-        "targetId": "[variables('serviceGroupId')]"
-      }
-    },
-    {
-      "type": "Microsoft.Relationships/serviceGroupMember",
-      "apiVersion": "2023-09-01-preview",
-      "name": "[variables('serviceGroupRelationshipId')]",
-      "scope": "[parameters('loadBalancerId')]",
-      "properties": {
-        "targetId": "[variables('serviceGroupId')]"
-      }
-    },
-    {
-      "type": "Microsoft.Relationships/serviceGroupMember",
-      "apiVersion": "2023-09-01-preview",
-      "name": "[variables('serviceGroupRelationshipId')]",
-      "scope": "[parameters('webVm1Id')]",
-      "properties": {
-        "targetId": "[variables('serviceGroupId')]"
-      }
-    },
-    {
-      "type": "Microsoft.Relationships/serviceGroupMember",
-      "apiVersion": "2023-09-01-preview",
-      "name": "[variables('serviceGroupRelationshipId')]",
-      "scope": "[parameters('webVm2Id')]",
-      "properties": {
-        "targetId": "[variables('serviceGroupId')]"
-      }
-    },
-    {
-      "type": "Microsoft.Relationships/serviceGroupMember",
-      "apiVersion": "2023-09-01-preview",
-      "name": "[variables('serviceGroupRelationshipId')]",
-      "scope": "[parameters('appVm1Id')]",
-      "properties": {
-        "targetId": "[variables('serviceGroupId')]"
-      }
-    },
-    {
-      "type": "Microsoft.Relationships/serviceGroupMember",
-      "apiVersion": "2023-09-01-preview",
-      "name": "[variables('serviceGroupRelationshipId')]",
-      "scope": "[parameters('appVm2Id')]",
-      "properties": {
-        "targetId": "[variables('serviceGroupId')]"
-      }
-    },
-    {
-      "type": "Microsoft.Relationships/serviceGroupMember",
-      "apiVersion": "2023-09-01-preview",
-      "name": "[variables('serviceGroupRelationshipId')]",
-      "scope": "[parameters('postgresId')]",
-      "properties": {
-        "targetId": "[variables('serviceGroupId')]"
-      }
-    },
-    {
-      "type": "Microsoft.Relationships/serviceGroupMember",
-      "apiVersion": "2023-09-01-preview",
-      "name": "[variables('serviceGroupRelationshipId')]",
-      "scope": "[parameters('storageId')]",
-      "properties": {
-        "targetId": "[variables('serviceGroupId')]"
+        "mode": "Incremental",
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "parameters": {
+          "serviceGroupName": {
+            "value": "[parameters('serviceGroupName')]"
+          },
+          "vnetId": {
+            "value": "[parameters('vnetId')]"
+          },
+          "publicIpId": {
+            "value": "[parameters('publicIpId')]"
+          },
+          "loadBalancerId": {
+            "value": "[parameters('loadBalancerId')]"
+          },
+          "webVm1Id": {
+            "value": "[parameters('webVm1Id')]"
+          },
+          "webVm2Id": {
+            "value": "[parameters('webVm2Id')]"
+          },
+          "appVm1Id": {
+            "value": "[parameters('appVm1Id')]"
+          },
+          "appVm2Id": {
+            "value": "[parameters('appVm2Id')]"
+          },
+          "postgresId": {
+            "value": "[parameters('postgresId')]"
+          },
+          "storageId": {
+            "value": "[parameters('storageId')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "serviceGroupName": {
+              "type": "string"
+            },
+            "vnetId": {
+              "type": "string"
+            },
+            "publicIpId": {
+              "type": "string"
+            },
+            "loadBalancerId": {
+              "type": "string"
+            },
+            "webVm1Id": {
+              "type": "string"
+            },
+            "webVm2Id": {
+              "type": "string"
+            },
+            "appVm1Id": {
+              "type": "string"
+            },
+            "appVm2Id": {
+              "type": "string"
+            },
+            "postgresId": {
+              "type": "string"
+            },
+            "storageId": {
+              "type": "string"
+            }
+          },
+          "variables": {
+            "serviceGroupId": "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]",
+            "serviceGroupRelationshipId": "[format('default{0}', parameters('serviceGroupName'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Relationships/serviceGroupMember",
+              "apiVersion": "2023-09-01-preview",
+              "name": "[variables('serviceGroupRelationshipId')]",
+              "scope": "[parameters('vnetId')]",
+              "properties": {
+                "targetId": "[variables('serviceGroupId')]"
+              }
+            },
+            {
+              "type": "Microsoft.Relationships/serviceGroupMember",
+              "apiVersion": "2023-09-01-preview",
+              "name": "[variables('serviceGroupRelationshipId')]",
+              "scope": "[parameters('publicIpId')]",
+              "properties": {
+                "targetId": "[variables('serviceGroupId')]"
+              }
+            },
+            {
+              "type": "Microsoft.Relationships/serviceGroupMember",
+              "apiVersion": "2023-09-01-preview",
+              "name": "[variables('serviceGroupRelationshipId')]",
+              "scope": "[parameters('loadBalancerId')]",
+              "properties": {
+                "targetId": "[variables('serviceGroupId')]"
+              }
+            },
+            {
+              "type": "Microsoft.Relationships/serviceGroupMember",
+              "apiVersion": "2023-09-01-preview",
+              "name": "[variables('serviceGroupRelationshipId')]",
+              "scope": "[parameters('webVm1Id')]",
+              "properties": {
+                "targetId": "[variables('serviceGroupId')]"
+              }
+            },
+            {
+              "type": "Microsoft.Relationships/serviceGroupMember",
+              "apiVersion": "2023-09-01-preview",
+              "name": "[variables('serviceGroupRelationshipId')]",
+              "scope": "[parameters('webVm2Id')]",
+              "properties": {
+                "targetId": "[variables('serviceGroupId')]"
+              }
+            },
+            {
+              "type": "Microsoft.Relationships/serviceGroupMember",
+              "apiVersion": "2023-09-01-preview",
+              "name": "[variables('serviceGroupRelationshipId')]",
+              "scope": "[parameters('appVm1Id')]",
+              "properties": {
+                "targetId": "[variables('serviceGroupId')]"
+              }
+            },
+            {
+              "type": "Microsoft.Relationships/serviceGroupMember",
+              "apiVersion": "2023-09-01-preview",
+              "name": "[variables('serviceGroupRelationshipId')]",
+              "scope": "[parameters('appVm2Id')]",
+              "properties": {
+                "targetId": "[variables('serviceGroupId')]"
+              }
+            },
+            {
+              "type": "Microsoft.Relationships/serviceGroupMember",
+              "apiVersion": "2023-09-01-preview",
+              "name": "[variables('serviceGroupRelationshipId')]",
+              "scope": "[parameters('postgresId')]",
+              "properties": {
+                "targetId": "[variables('serviceGroupId')]"
+              }
+            },
+            {
+              "type": "Microsoft.Relationships/serviceGroupMember",
+              "apiVersion": "2023-09-01-preview",
+              "name": "[variables('serviceGroupRelationshipId')]",
+              "scope": "[parameters('storageId')]",
+              "properties": {
+                "targetId": "[variables('serviceGroupId')]"
+              }
+            }
+          ]
+        }
       }
     },
     {
