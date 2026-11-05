@@ -1,0 +1,369 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "Independent shared-RG memberships and best-effort configuration phases; no all-membership success gate."
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "southcentralus"
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {}
+    },
+    "serviceGroupName": {
+      "type": "string",
+      "minLength": 1,
+      "defaultValue": "CaldovaPayApp_Ex3_Task4_SG",
+      "metadata": {
+        "description": "Name of the already-existing Service Group (created by step1) to assign a resilience goal to. Default matches step1's default naming formula so both templates chain together in the same resource group with no parameters."
+      }
+    },
+    "serviceGroupDisplayName": {
+      "type": "string",
+      "defaultValue": "[parameters('serviceGroupName')]"
+    },
+    "serviceGroupParentId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional parent Service Group resource ID. Leave empty for a root-level Service Group (defaults to the tenant-root Service Group)."
+      }
+    },
+    "sharedResourceGroupName": {
+      "type": "string",
+      "defaultValue": "CaldovaPayApp_Ex3_Task3"
+    },
+    "deployGoalAssignment": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Create the goal assignment. On retries or redeployment, set false only after verifying the existing goal has provisioningState Succeeded and requireZonalResiliency true. The PowerShell runners check this on every attempt and reuse the existing goal without another PUT."
+      }
+    },
+    "zonalGoalAssignmentName": {
+      "type": "string",
+      "defaultValue": "zonal-ha-assign",
+      "metadata": {
+        "description": "Name of the goal assignment. Only one goalAssignment is allowed per Service Group."
+      }
+    },
+    "goalAssignmentType": {
+      "type": "string",
+      "defaultValue": "Resiliency",
+      "metadata": {
+        "description": "Only 'Resiliency' is accepted."
+      }
+    },
+    "goalApiVersion": {
+      "type": "string",
+      "defaultValue": "2026-08-31-preview",
+      "metadata": {
+        "description": "No separate goalTemplates resource is needed on this apiVersion or later. A standalone goalTemplates resource's write is hard-blocked (DisallowedResourceOperation) on every apiVersion - do not add one. goalTemplateId instead points at the Service Group's own resource ID. Do not set requireZonalResiliency explicitly - both true and false are currently rejected (RHUBUserErrorInvalidRequestParameter); omitting it yields the only supported default (true)."
+      }
+    },
+    "phase": {
+      "type": "string",
+      "defaultValue": "ServiceGroup",
+      "allowedValues": [
+        "ServiceGroup",
+        "HealthModel",
+        "Goal",
+        "UsagePlan",
+        "Enrollment",
+        "RecoveryPlan",
+        "Drill",
+        "Membership"
+      ]
+    },
+    "memberKey": {
+      "type": "string",
+      "defaultValue": "",
+      "allowedValues": [
+        "",
+        "vnetId",
+        "publicIpId",
+        "loadBalancerId",
+        "webVm1Id",
+        "webVm2Id",
+        "appVm1Id",
+        "appVm2Id",
+        "postgresId",
+        "storageId"
+      ]
+    }
+  },
+  "variables": {
+    "serviceGroupResourceId": "[format('/providers/Microsoft.Management/serviceGroups/{0}', parameters('serviceGroupName'))]",
+    "serviceGroupRelationshipId": "[format('default{0}', parameters('serviceGroupName'))]",
+    "vnetNameValue": "[format('vnet-{0}', uniqueString(variables('sharedResourceGroupId')))]",
+    "publicIpNameValue": "[format('pubip-{0}', uniqueString(variables('sharedResourceGroupId')))]",
+    "lbNameValue": "[format('web-lb-{0}', uniqueString(variables('sharedResourceGroupId')))]",
+    "webVm1NameValue": "[format('web-vm-1-{0}', uniqueString(variables('sharedResourceGroupId')))]",
+    "webVm2NameValue": "[format('web-vm-2-{0}', uniqueString(variables('sharedResourceGroupId')))]",
+    "appVm1NameValue": "[format('app-vm-1-{0}', uniqueString(variables('sharedResourceGroupId')))]",
+    "appVm2NameValue": "[format('app-vm-2-{0}', uniqueString(variables('sharedResourceGroupId')))]",
+    "pgServerNameValue": "[format('pg-flex-{0}', uniqueString(variables('sharedResourceGroupId')))]",
+    "storageNameValue": "[format('st{0}', uniqueString(variables('sharedResourceGroupId')))]",
+    "sharedResourceGroupId": "[format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, parameters('sharedResourceGroupName'))]",
+    "serviceGroupId": "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]",
+    "vnetId": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Network/virtualNetworks', format('vnet-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
+    "publicIpId": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Network/publicIPAddresses', format('pubip-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
+    "loadBalancerId": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Network/loadBalancers', format('web-lb-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
+    "webVm1Id": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Compute/virtualMachines', format('web-vm-1-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
+    "webVm2Id": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Compute/virtualMachines', format('web-vm-2-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
+    "appVm1Id": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Compute/virtualMachines', format('app-vm-1-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
+    "appVm2Id": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Compute/virtualMachines', format('app-vm-2-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
+    "postgresId": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.DBforPostgreSQL/flexibleServers', format('pg-flex-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
+    "storageId": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Storage/storageAccounts', format('st{0}', uniqueString(variables('sharedResourceGroupId'))))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Management/serviceGroups",
+      "apiVersion": "2024-02-01-preview",
+      "scope": "/",
+      "name": "[parameters('serviceGroupName')]",
+      "properties": "[createObject('displayName', parameters('serviceGroupDisplayName'), 'parent', createObject('resourceId', if(empty(parameters('serviceGroupParentId')), format('/providers/Microsoft.Management/serviceGroups/{0}', tenant().tenantId), parameters('serviceGroupParentId'))))]",
+      "condition": "[equals(parameters('phase'), 'ServiceGroup')]"
+    },
+    {
+      "type": "Microsoft.AzureResilienceManagement/goalAssignments",
+      "condition": "[and(equals(parameters('phase'), 'Goal'), parameters('deployGoalAssignment'))]",
+      "apiVersion": "[parameters('goalApiVersion')]",
+      "name": "[parameters('zonalGoalAssignmentName')]",
+      "scope": "[variables('serviceGroupId')]",
+      "properties": {
+        "goalAssignmentType": "[parameters('goalAssignmentType')]",
+        "goalTemplateId": "[variables('serviceGroupId')]"
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('shared-membership-{0}-{1}', parameters('memberKey'), uniqueString(parameters('serviceGroupName')))]",
+      "condition": "[equals(parameters('phase'), 'Membership')]",
+      "subscriptionId": "[subscription().subscriptionId]",
+      "resourceGroup": "[parameters('sharedResourceGroupName')]",
+      "properties": {
+        "mode": "Incremental",
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "parameters": {
+          "serviceGroupName": {
+            "value": "[parameters('serviceGroupName')]"
+          },
+          "memberKey": {
+            "value": "[parameters('memberKey')]"
+          },
+          "vnetId": {
+            "value": "[variables('vnetId')]"
+          },
+          "publicIpId": {
+            "value": "[variables('publicIpId')]"
+          },
+          "loadBalancerId": {
+            "value": "[variables('loadBalancerId')]"
+          },
+          "webVm1Id": {
+            "value": "[variables('webVm1Id')]"
+          },
+          "webVm2Id": {
+            "value": "[variables('webVm2Id')]"
+          },
+          "appVm1Id": {
+            "value": "[variables('appVm1Id')]"
+          },
+          "appVm2Id": {
+            "value": "[variables('appVm2Id')]"
+          },
+          "postgresId": {
+            "value": "[variables('postgresId')]"
+          },
+          "storageId": {
+            "value": "[variables('storageId')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "parameters": {
+            "serviceGroupName": {
+              "type": "string"
+            },
+            "memberKey": {
+              "type": "string"
+            },
+            "vnetId": {
+              "type": "string"
+            },
+            "publicIpId": {
+              "type": "string"
+            },
+            "loadBalancerId": {
+              "type": "string"
+            },
+            "webVm1Id": {
+              "type": "string"
+            },
+            "webVm2Id": {
+              "type": "string"
+            },
+            "appVm1Id": {
+              "type": "string"
+            },
+            "appVm2Id": {
+              "type": "string"
+            },
+            "postgresId": {
+              "type": "string"
+            },
+            "storageId": {
+              "type": "string"
+            }
+          },
+          "variables": {
+            "serviceGroupId": "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]",
+            "serviceGroupRelationshipId": "[format('default{0}', parameters('serviceGroupName'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Relationships/serviceGroupMember",
+              "apiVersion": "2023-09-01-preview",
+              "name": "[variables('serviceGroupRelationshipId')]",
+              "scope": "[parameters('vnetId')]",
+              "properties": {
+                "targetId": "[variables('serviceGroupId')]"
+              },
+              "condition": "[equals(parameters('memberKey'), 'vnetId')]"
+            },
+            {
+              "type": "Microsoft.Relationships/serviceGroupMember",
+              "apiVersion": "2023-09-01-preview",
+              "name": "[variables('serviceGroupRelationshipId')]",
+              "scope": "[parameters('publicIpId')]",
+              "properties": {
+                "targetId": "[variables('serviceGroupId')]"
+              },
+              "condition": "[equals(parameters('memberKey'), 'publicIpId')]"
+            },
+            {
+              "type": "Microsoft.Relationships/serviceGroupMember",
+              "apiVersion": "2023-09-01-preview",
+              "name": "[variables('serviceGroupRelationshipId')]",
+              "scope": "[parameters('loadBalancerId')]",
+              "properties": {
+                "targetId": "[variables('serviceGroupId')]"
+              },
+              "condition": "[equals(parameters('memberKey'), 'loadBalancerId')]"
+            },
+            {
+              "type": "Microsoft.Relationships/serviceGroupMember",
+              "apiVersion": "2023-09-01-preview",
+              "name": "[variables('serviceGroupRelationshipId')]",
+              "scope": "[parameters('webVm1Id')]",
+              "properties": {
+                "targetId": "[variables('serviceGroupId')]"
+              },
+              "condition": "[equals(parameters('memberKey'), 'webVm1Id')]"
+            },
+            {
+              "type": "Microsoft.Relationships/serviceGroupMember",
+              "apiVersion": "2023-09-01-preview",
+              "name": "[variables('serviceGroupRelationshipId')]",
+              "scope": "[parameters('webVm2Id')]",
+              "properties": {
+                "targetId": "[variables('serviceGroupId')]"
+              },
+              "condition": "[equals(parameters('memberKey'), 'webVm2Id')]"
+            },
+            {
+              "type": "Microsoft.Relationships/serviceGroupMember",
+              "apiVersion": "2023-09-01-preview",
+              "name": "[variables('serviceGroupRelationshipId')]",
+              "scope": "[parameters('appVm1Id')]",
+              "properties": {
+                "targetId": "[variables('serviceGroupId')]"
+              },
+              "condition": "[equals(parameters('memberKey'), 'appVm1Id')]"
+            },
+            {
+              "type": "Microsoft.Relationships/serviceGroupMember",
+              "apiVersion": "2023-09-01-preview",
+              "name": "[variables('serviceGroupRelationshipId')]",
+              "scope": "[parameters('appVm2Id')]",
+              "properties": {
+                "targetId": "[variables('serviceGroupId')]"
+              },
+              "condition": "[equals(parameters('memberKey'), 'appVm2Id')]"
+            },
+            {
+              "type": "Microsoft.Relationships/serviceGroupMember",
+              "apiVersion": "2023-09-01-preview",
+              "name": "[variables('serviceGroupRelationshipId')]",
+              "scope": "[parameters('postgresId')]",
+              "properties": {
+                "targetId": "[variables('serviceGroupId')]"
+              },
+              "condition": "[equals(parameters('memberKey'), 'postgresId')]"
+            },
+            {
+              "type": "Microsoft.Relationships/serviceGroupMember",
+              "apiVersion": "2023-09-01-preview",
+              "name": "[variables('serviceGroupRelationshipId')]",
+              "scope": "[parameters('storageId')]",
+              "properties": {
+                "targetId": "[variables('serviceGroupId')]"
+              },
+              "condition": "[equals(parameters('memberKey'), 'storageId')]"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "serviceGroupId": {
+      "type": "string",
+      "value": "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]"
+    },
+    "vnetId": {
+      "type": "string",
+      "value": "[variables('vnetId')]"
+    },
+    "publicIpId": {
+      "type": "string",
+      "value": "[variables('publicIpId')]"
+    },
+    "loadBalancerId": {
+      "type": "string",
+      "value": "[variables('loadBalancerId')]"
+    },
+    "webVm1Id": {
+      "type": "string",
+      "value": "[variables('webVm1Id')]"
+    },
+    "webVm2Id": {
+      "type": "string",
+      "value": "[variables('webVm2Id')]"
+    },
+    "appVm1Id": {
+      "type": "string",
+      "value": "[variables('appVm1Id')]"
+    },
+    "appVm2Id": {
+      "type": "string",
+      "value": "[variables('appVm2Id')]"
+    },
+    "postgresId": {
+      "type": "string",
+      "value": "[variables('postgresId')]"
+    },
+    "storageId": {
+      "type": "string",
+      "value": "[variables('storageId')]"
+    }
+  }
+}
