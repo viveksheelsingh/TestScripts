@@ -6,7 +6,7 @@
     Creates shared infrastructure, then independently attempts the SG and its membership batch.
     Goals remain a learner step. Regional fallback only removes a confirmed-empty
     RG created/tagged by this run; existing or partial RGs are retained.
-    All nine SG memberships are submitted together per attempt; a failed batch
+    All six SG memberships are submitted together per attempt; a failed batch
     is logged and subsequent stages are still attempted.
     Templates are always downloaded from TemplateBaseUri (GitHub by default).
     No embedded or adjacent-file fallback. Template/authentication/input failures

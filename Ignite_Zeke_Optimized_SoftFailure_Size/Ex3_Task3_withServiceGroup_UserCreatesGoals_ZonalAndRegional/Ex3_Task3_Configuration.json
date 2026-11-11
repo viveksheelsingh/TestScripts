@@ -59,15 +59,12 @@
         "publicIpId",
         "loadBalancerId",
         "webVm1Id",
-        "webVm2Id",
-        "appVm1Id",
-        "appVm2Id",
         "postgresId",
         "storageId",
         "All"
       ],
       "metadata": {
-        "description": "All submits nine memberships together; individual member keys remain supported."
+        "description": "All submits six memberships together, including the single web VM; individual member keys remain supported."
       }
     }
   },
@@ -78,9 +75,6 @@
     "publicIpNameValue": "[format('pubip-{0}', uniqueString(resourceGroup().id))]",
     "lbNameValue": "[format('web-lb-{0}', uniqueString(resourceGroup().id))]",
     "webVm1NameValue": "[format('web-vm-1-{0}', uniqueString(resourceGroup().id))]",
-    "webVm2NameValue": "[format('web-vm-2-{0}', uniqueString(resourceGroup().id))]",
-    "appVm1NameValue": "[format('app-vm-1-{0}', uniqueString(resourceGroup().id))]",
-    "appVm2NameValue": "[format('app-vm-2-{0}', uniqueString(resourceGroup().id))]",
     "pgServerNameValue": "[format('pg-flex-{0}', uniqueString(resourceGroup().id))]",
     "storageNameValue": "[format('st{0}', uniqueString(resourceGroup().id))]",
     "serviceGroupId": "[tenantResourceId('Microsoft.Management/serviceGroups', parameters('serviceGroupName'))]",
@@ -89,9 +83,6 @@
     "publicIpId": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Network/publicIPAddresses', format('pubip-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
     "loadBalancerId": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Network/loadBalancers', format('web-lb-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
     "webVm1Id": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Compute/virtualMachines', format('web-vm-1-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
-    "webVm2Id": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Compute/virtualMachines', format('web-vm-2-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
-    "appVm1Id": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Compute/virtualMachines', format('app-vm-1-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
-    "appVm2Id": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Compute/virtualMachines', format('app-vm-2-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
     "postgresId": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.DBforPostgreSQL/flexibleServers', format('pg-flex-{0}', uniqueString(variables('sharedResourceGroupId'))))]",
     "storageId": "[resourceId(subscription().subscriptionId, parameters('sharedResourceGroupName'), 'Microsoft.Storage/storageAccounts', format('st{0}', uniqueString(variables('sharedResourceGroupId'))))]"
   },
@@ -135,15 +126,6 @@
           "webVm1Id": {
             "value": "[variables('webVm1Id')]"
           },
-          "webVm2Id": {
-            "value": "[variables('webVm2Id')]"
-          },
-          "appVm1Id": {
-            "value": "[variables('appVm1Id')]"
-          },
-          "appVm2Id": {
-            "value": "[variables('appVm2Id')]"
-          },
           "postgresId": {
             "value": "[variables('postgresId')]"
           },
@@ -171,15 +153,6 @@
               "type": "string"
             },
             "webVm1Id": {
-              "type": "string"
-            },
-            "webVm2Id": {
-              "type": "string"
-            },
-            "appVm1Id": {
-              "type": "string"
-            },
-            "appVm2Id": {
               "type": "string"
             },
             "postgresId": {
@@ -238,36 +211,6 @@
               "type": "Microsoft.Relationships/serviceGroupMember",
               "apiVersion": "2023-09-01-preview",
               "name": "[variables('serviceGroupRelationshipId')]",
-              "scope": "[parameters('webVm2Id')]",
-              "properties": {
-                "targetId": "[variables('serviceGroupId')]"
-              },
-              "condition": "[or(equals(parameters('memberKey'), 'All'), equals(parameters('memberKey'), 'webVm2Id'))]"
-            },
-            {
-              "type": "Microsoft.Relationships/serviceGroupMember",
-              "apiVersion": "2023-09-01-preview",
-              "name": "[variables('serviceGroupRelationshipId')]",
-              "scope": "[parameters('appVm1Id')]",
-              "properties": {
-                "targetId": "[variables('serviceGroupId')]"
-              },
-              "condition": "[or(equals(parameters('memberKey'), 'All'), equals(parameters('memberKey'), 'appVm1Id'))]"
-            },
-            {
-              "type": "Microsoft.Relationships/serviceGroupMember",
-              "apiVersion": "2023-09-01-preview",
-              "name": "[variables('serviceGroupRelationshipId')]",
-              "scope": "[parameters('appVm2Id')]",
-              "properties": {
-                "targetId": "[variables('serviceGroupId')]"
-              },
-              "condition": "[or(equals(parameters('memberKey'), 'All'), equals(parameters('memberKey'), 'appVm2Id'))]"
-            },
-            {
-              "type": "Microsoft.Relationships/serviceGroupMember",
-              "apiVersion": "2023-09-01-preview",
-              "name": "[variables('serviceGroupRelationshipId')]",
               "scope": "[parameters('postgresId')]",
               "properties": {
                 "targetId": "[variables('serviceGroupId')]"
@@ -309,18 +252,6 @@
     "webVm1Id": {
       "type": "string",
       "value": "[variables('webVm1Id')]"
-    },
-    "webVm2Id": {
-      "type": "string",
-      "value": "[variables('webVm2Id')]"
-    },
-    "appVm1Id": {
-      "type": "string",
-      "value": "[variables('appVm1Id')]"
-    },
-    "appVm2Id": {
-      "type": "string",
-      "value": "[variables('appVm2Id')]"
     },
     "postgresId": {
       "type": "string",
