@@ -14,7 +14,8 @@
       "defaultValue": {}
     },
     "administratorPassword": {
-      "type": "securestring"
+      "type": "securestring",
+      "defaultValue": "@lab.CloudPortalCredential(User1).Password"
     }
   },
   "resources": [
