@@ -689,7 +689,7 @@
             },
             "serverName": {
               "type": "string",
-              "defaultValue": "[format('pgflex-{0}', uniqueString(resourceGroup().id))]"
+              "defaultValue": "[format('pg-flex-{0}', uniqueString(resourceGroup().id))]"
             },
             "location": {
               "type": "string",
