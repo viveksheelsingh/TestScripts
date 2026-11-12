@@ -3,8 +3,8 @@
 .SYNOPSIS
     Creates only a Service Group and nine memberships for existing Task3 resources.
 .DESCRIPTION
-    Requires an existing resource group. Reuses a signed-in Az context, or prompts for
-    interactive sign-in with Connect-AzAccount when no account is available. Does not create RGs or
+    Requires an existing resource group. Reuses a signed-in Az context in the lab tenant,
+    or prompts for device-code sign-in with Connect-AzAccount. Does not create RGs or
     application resources. Uses the original templates from GitHub by default, or adjacent
     files with UseLocalFiles. Step1 filters the original template to the SG resource only,
     and returns resource IDs using the original ARM naming formulas. Step2 receives those
@@ -19,7 +19,7 @@
     Existing RG containing resources deployed with the original Task3 naming formulas.
 .PARAMETER SubscriptionId
     Optional subscription GUID. When omitted, selects the sole subscription available
-    to the signed-in account; requires an explicit ID if multiple subscriptions exist.
+    to the signed-in account in the lab tenant; requires an explicit ID if multiple subscriptions exist.
 #>
 [CmdletBinding()]
 param(
@@ -39,6 +39,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+$TenantId = '4cfe372a-37a4-44f8-91b2-5faf34253c62'
 
 function Get-SourceTemplate {
     param([string] $Name)
@@ -75,21 +76,21 @@ if (-not [string]::IsNullOrWhiteSpace($SubscriptionId) -and
     throw 'Supply -SubscriptionId as a subscription GUID, or omit it for single-subscription auto-selection.'
 }
 $context = Get-AzContext -ErrorAction SilentlyContinue
-if (-not $context.Account) {
-    [Console]::WriteLine('No signed-in Az context found. Signing in to Azure...')
-    $loginParameters = @{ ErrorAction = 'Stop' }
+if (-not $context.Account -or $context.Tenant.Id -ne $TenantId) {
+    [Console]::WriteLine("Signing in to lab tenant $TenantId using device authentication...")
+    $loginParameters = @{ Tenant = $TenantId; UseDeviceAuthentication = $true; ErrorAction = 'Stop' }
     if (-not [string]::IsNullOrWhiteSpace($SubscriptionId)) { $loginParameters.Subscription = $SubscriptionId }
     Connect-AzAccount @loginParameters | Out-Null
 }
 if ([string]::IsNullOrWhiteSpace($SubscriptionId)) {
-    $subscriptions = @(Get-AzSubscription -ErrorAction Stop)
+    $subscriptions = @(Get-AzSubscription -TenantId $TenantId -ErrorAction Stop)
     if ($subscriptions.Count -ne 1) {
         throw "Found $($subscriptions.Count) available subscriptions. Supply -SubscriptionId explicitly."
     }
     $SubscriptionId = $subscriptions[0].Id
     [Console]::WriteLine("Using the only available subscription: $SubscriptionId")
 }
-Set-AzContext -SubscriptionId $SubscriptionId -ErrorAction Stop | Out-Null
+Set-AzContext -SubscriptionId $SubscriptionId -Tenant $TenantId -ErrorAction Stop | Out-Null
 $null = Get-AzResourceGroup -Name $ResourceGroupName -ErrorAction Stop
 $step1Template = Get-SourceTemplate 'SGMSGSplit_Ex3_Task3_CommonSGSetup.json'
 $step2Template = Get-SourceTemplate 'SGMSGSplit_NoOpStep2_UserCreatesGoalsManually.json'
