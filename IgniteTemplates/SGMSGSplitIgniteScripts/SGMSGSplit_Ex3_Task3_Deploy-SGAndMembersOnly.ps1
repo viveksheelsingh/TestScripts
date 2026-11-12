@@ -3,7 +3,8 @@
 .SYNOPSIS
     Creates only a Service Group and nine memberships for existing Task3 resources.
 .DESCRIPTION
-    Requires an existing signed-in Az context and resource group. Does not create RGs or
+    Requires an existing resource group. Reuses a signed-in Az context, or prompts for
+    interactive sign-in with Connect-AzAccount when no account is available. Does not create RGs or
     application resources. Uses the original templates from GitHub by default, or adjacent
     files with UseLocalFiles. Step1 filters the original template to the SG resource only,
     and returns resource IDs using the original ARM naming formulas. Step2 receives those
@@ -16,6 +17,9 @@
     Required exact Service Group name. No lab-instance suffix is added automatically.
 .PARAMETER ResourceGroupName
     Existing RG containing resources deployed with the original Task3 naming formulas.
+.PARAMETER SubscriptionId
+    Optional subscription GUID. When omitted, selects the sole subscription available
+    to the signed-in account; requires an explicit ID if multiple subscriptions exist.
 #>
 [CmdletBinding()]
 param(
@@ -26,8 +30,7 @@ param(
     [ValidateNotNullOrEmpty()]
     [string] $ResourceGroupName = 'CaldovaPayApp_Ex3_Task3',
 
-    [ValidateNotNullOrEmpty()]
-    [string] $SubscriptionId = '@lab.CloudSubscription.Id',
+    [string] $SubscriptionId = '',
 
     [ValidateNotNullOrEmpty()]
     [string] $TemplateBaseUri = 'https://raw.githubusercontent.com/viveksheelsingh/TestScripts/main/IgniteTemplates/SGMSGSplitIgniteScripts',
@@ -67,6 +70,25 @@ function Invoke-StageDeployment {
     }
 }
 
+if (-not [string]::IsNullOrWhiteSpace($SubscriptionId) -and
+        $SubscriptionId -notmatch '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
+    throw 'Supply -SubscriptionId as a subscription GUID, or omit it for single-subscription auto-selection.'
+}
+$context = Get-AzContext -ErrorAction SilentlyContinue
+if (-not $context.Account) {
+    [Console]::WriteLine('No signed-in Az context found. Signing in to Azure...')
+    $loginParameters = @{ ErrorAction = 'Stop' }
+    if (-not [string]::IsNullOrWhiteSpace($SubscriptionId)) { $loginParameters.Subscription = $SubscriptionId }
+    Connect-AzAccount @loginParameters | Out-Null
+}
+if ([string]::IsNullOrWhiteSpace($SubscriptionId)) {
+    $subscriptions = @(Get-AzSubscription -ErrorAction Stop)
+    if ($subscriptions.Count -ne 1) {
+        throw "Found $($subscriptions.Count) available subscriptions. Supply -SubscriptionId explicitly."
+    }
+    $SubscriptionId = $subscriptions[0].Id
+    [Console]::WriteLine("Using the only available subscription: $SubscriptionId")
+}
 Set-AzContext -SubscriptionId $SubscriptionId -ErrorAction Stop | Out-Null
 $null = Get-AzResourceGroup -Name $ResourceGroupName -ErrorAction Stop
 $step1Template = Get-SourceTemplate 'SGMSGSplit_Ex3_Task3_CommonSGSetup.json'
